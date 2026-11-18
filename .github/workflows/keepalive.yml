@@ -1,20 +1,20 @@
-# Le plan gratuit de Supabase met un projet en pause après 7 jours sans activité.
-# Ce petit robot interroge la base deux fois par semaine pour la garder éveillée
-# (vacances, trêve hivernale). Il lit l'adresse et la clé publique dans config.js.
-name: Garder Supabase éveillé
+# Free Supabase projects are paused after 7 days without activity.
+# This small job calls the database twice a week to keep it awake (holidays, winter break).
+# It reads the project URL and publishable key from config.js.
+name: Keep Supabase awake
 on:
   schedule:
-    - cron: '17 5 * * 1,4'   # lundi et jeudi, 05:17 UTC
+    - cron: '17 5 * * 1,4'   # Monday and Thursday, 05:17 UTC
   workflow_dispatch:
 jobs:
   ping:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Appeler la base
+      - name: Call the database
         run: |
-          URL=$(grep -oP "SUPABASE_URL:\s*'\K[^']+" config.js)
+          URL=$(grep -oP "SUPABASE_URL:\s*'\K[^']+" config.js | grep -oP '^https://[^/]+')
           KEY=$(grep -oP "SUPABASE_KEY:\s*'\K[^']+" config.js)
-          curl -sS --fail-with-body -X POST "${URL%/}/rest/v1/rpc/server_time" \
+          curl -sS --fail-with-body -X POST "$URL/rest/v1/rpc/server_time" \
             -H "apikey: $KEY" -H "Authorization: Bearer $KEY" \
             -H "Content-Type: application/json" -d '{}'

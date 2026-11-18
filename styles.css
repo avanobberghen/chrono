@@ -1,26 +1,13 @@
-/* Chrono Chouet'Bike : une colonne, gros boutons pour doigts gantés, couleur réservée aux actions de chrono. */
+/* Chrono: one column, large buttons for gloved fingers, colour reserved for timing actions. */
 :root{
-  --bg:#EEF1EC; --surface:#FFFFFF; --ink:#13201B; --muted:#5C6B64; --line:#D5DCD6;
-  --accent:#0E5A6B; --accent-ink:#FFFFFF;
-  --go:#18794A; --stop:#C8372D; --split:#A86400; --lap:#2B5FC4;
+  --bg:#EDF2F8; --surface:#FFFFFF; --line:#CFDAE7; --ink:#0E1E33; --muted:#55687F;
+  --accent:#2A5684; --accent-ink:#FFFFFF;
+  --go:#16794A; --stop:#C33A2F; --split:#8A6A00; --lap:#1F6FC4; --act-ink:#FFFFFF;
   --display:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
   --body:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
   color-scheme:light;
 }
-@media (prefers-color-scheme:dark){
-  :root:not([data-theme="light"]){
-    --bg:#0F1614; --surface:#18221F; --ink:#E9EFEB; --muted:#9BABA3; --line:#2B3833;
-    --accent:#5CC0D4; --accent-ink:#06222A;
-    --go:#3DB57A; --stop:#F0655A; --split:#E7A63A; --lap:#7EA6F5;
-    color-scheme:dark;
-  }
-}
-:root[data-theme="dark"]{
-  --bg:#0F1614; --surface:#18221F; --ink:#E9EFEB; --muted:#9BABA3; --line:#2B3833;
-  --accent:#5CC0D4; --accent-ink:#06222A;
-  --go:#3DB57A; --stop:#F0655A; --split:#E7A63A; --lap:#7EA6F5;
-  color-scheme:dark;
-}
+/* The actual colours come from settings.js and are applied by app.js at start-up. */
 *{box-sizing:border-box}
 html,body{height:100%;margin:0}
 body{background:var(--bg);color:var(--ink);font:400 16px/1.4 var(--body);-webkit-tap-highlight-color:transparent}
@@ -63,14 +50,12 @@ h2{font:700 12px/1 var(--display);letter-spacing:.09em;text-transform:uppercase;
 .who small{color:var(--muted);font-size:12.5px;line-height:1.2;display:block}
 .time{font:700 21px/1 var(--display);font-variant-numeric:tabular-nums;text-align:right}
 .row:not(.run) .time{color:var(--muted);font-size:17px}
-.act{border:0;border-radius:10px;min-width:80px;min-height:44px;font:800 15px/1 var(--display);letter-spacing:.05em;text-transform:uppercase;color:#fff;padding:0 12px}
+.act{border:0;border-radius:10px;min-width:80px;min-height:44px;font:800 15px/1 var(--display);letter-spacing:.05em;text-transform:uppercase;color:var(--act-ink);padding:0 12px}
 .act.go{background:var(--go)} .act.stop{background:var(--stop)} .act.split{background:var(--split)} .act.lap{background:var(--lap)}
 .act.x{background:none;border:1px solid var(--line);color:var(--ink)}
 .act.pick{background:none;border:2px solid var(--line);color:var(--muted);min-width:56px}
 .act.pick[aria-pressed="true"]{background:var(--go);border-color:var(--go);color:var(--surface)}
 .act:disabled{opacity:.45}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .act:not(.x):not(.pick):not(.late){color:#0B1210}}
-:root[data-theme="dark"] .act:not(.x):not(.pick):not(.late){color:#0B1210}
 .duo{display:flex;gap:5px}
 .duo .act{min-width:52px;padding:0 8px}
 .duo .act.x{min-width:36px;padding:0}
@@ -79,7 +64,7 @@ h2{font:700 12px/1 var(--display);letter-spacing:.09em;text-transform:uppercase;
 .gobar .ghost{min-height:52px}
 .hint{border:1px dashed var(--line);border-radius:14px;padding:14px;color:var(--muted);font-size:15px}
 .tools{display:flex;gap:8px;flex-wrap:wrap}
-/* résultats */
+/* results */
 .res{background:var(--surface);border:1px solid var(--line);border-radius:14px}
 .res summary{display:grid;grid-template-columns:30px 1fr auto;gap:10px;align-items:center;padding:12px;list-style:none;cursor:pointer}
 .res summary::-webkit-details-marker{display:none}
@@ -102,7 +87,7 @@ h2{font:700 12px/1 var(--display);letter-spacing:.09em;text-transform:uppercase;
 .plot text{font:500 10px var(--body);fill:var(--muted)}
 .file{display:inline-flex;align-items:center;justify-content:center;position:relative;overflow:hidden}
 .file input{position:absolute;inset:0;opacity:0;cursor:pointer}
-/* feuilles et formulaires */
+/* sheets and forms */
 .veil{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:flex-end;justify-content:center;z-index:5}
 .sheet{background:var(--bg);width:100%;max-width:560px;max-height:88%;overflow:auto;border-radius:18px 18px 0 0;padding:18px 16px 24px;display:flex;flex-direction:column;gap:12px}
 .sheet h3{font:800 21px/1.1 var(--display);margin:0}
@@ -133,3 +118,16 @@ h2{font:700 12px/1 var(--display);letter-spacing:.09em;text-transform:uppercase;
 .net{cursor:pointer}
 #app{padding-top:env(safe-area-inset-top)}
 
+
+.brand{display:flex;align-items:center;gap:12px;flex:1;min-width:0}
+.brand img{height:52px;width:auto;flex:none;background:#fff;border-radius:12px;padding:4px}
+.brand h1{flex:1}
+.login .logo{height:104px;width:auto;align-self:flex-start;background:#fff;border-radius:18px;padding:8px}
+.bar h1 small{color:var(--muted)}
+.card:hover,.ghost:hover{border-color:var(--accent)}
+.tag.today{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+
+.foot{display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px;margin-top:18px;padding-top:12px;border-top:1px solid var(--line);font-size:13px;color:var(--muted)}
+.foot select{background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:6px 8px;min-height:36px;font-size:14px}
+.langpick{display:flex;align-items:center;gap:6px}
+.linkish{background:none;border:0;color:var(--accent);font-weight:600;padding:8px 0;min-height:36px;font-size:13px}

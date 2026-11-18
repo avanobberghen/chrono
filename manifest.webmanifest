@@ -1,16 +1,32 @@
 {
-  "name": "Chrono Chouet'Bike",
+  "name": "Chrono Chouet'Bike Club",
   "short_name": "Chrono",
-  "description": "Chronométrage des jeunes à l'entraînement",
-  "lang": "fr",
+  "description": "Training stopwatch for coaches",
+  "lang": "en",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#EEF1EC",
-  "theme_color": "#0E5A6B",
+  "background_color": "#0A1626",
+  "theme_color": "#0A1626",
   "icons": [
-    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
   ]
 }

@@ -1,117 +1,179 @@
-# Chrono Chouet'Bike
+# Chrono
 
-Appli web de chronométrage des jeunes à l'entraînement, utilisable à plusieurs encadrants avec leurs smartphones, y compris avec un réseau faible.
+A training stopwatch for sports coaches, used on several phones at once and built to cope with weak mobile networks.
 
-- **Hébergement de l'appli** : GitHub Pages (gratuit), à l'adresse `chrono.chouetbikeclub.fr`.
-- **Comptes, données et synchronisation** : Supabase (plan gratuit, hébergé en Europe).
-- **Aucune donnée dans GitHub** : le dépôt ne contient que le code. Les noms des jeunes et les temps sont dans Supabase, accessibles uniquement aux encadrants connectés.
+One coach stands at the start, others at split points or at the finish. A start tapped on one phone sets the stopwatch running on all the others. Each tap is saved on the phone with its exact time, then sent as soon as the network allows.
 
-Comptez 30 à 45 minutes pour l'installation. Tout se fait dans un navigateur, de préférence sur ordinateur.
+![The app in dark and light theme](docs/screenshot-themes.png)
 
-## Contenu du dossier
+## Features
 
-| Fichier | Rôle |
+- Sessions with a name and a date, a list of riders per session, and archiving.
+- A club list of riders (with groups) and a list of allowed coaches, managed by admins, with `.csv` import.
+- Posts: **Start**, **Split**, **Finish**, and **Start/Finish** for laps on a circuit.
+- Staggered and group starts, several riders on course at once, lap or finish chosen after the stop.
+- Results per rider: every run, best, average and slowest time, split and lap details, `.csv` export.
+- Offline: taps are stored on the phone and synced later; phone clocks are aligned on the server clock.
+- GPX import after the session: distance, climb, speeds, and per-run speeds for the rider who carried the device.
+- Installable on the home screen, several languages, your own name, logo and colours.
+
+## How it is built
+
+| Part | Service | Cost |
+|---|---|---|
+| The app (static files) | GitHub Pages | Free |
+| Accounts, data, realtime sync | Supabase (choose a region close to you) | Free plan |
+| Your own address, e.g. `chrono.example.org` | Your domain registrar | Optional |
+
+Riders' names and times are stored only in Supabase and are visible only to signed-in coaches. The GitHub repository holds the code and your settings, nothing else.
+
+### Files
+
+| File | Role |
 |---|---|
-| `index.html`, `app.js`, `styles.css` | L'appli |
-| `config.js` | **À modifier** : adresse et clé publique Supabase |
-| `sw.js`, `manifest.webmanifest`, icônes | Installation sur l'écran d'accueil et fonctionnement hors ligne |
-| `supabase/schema.sql` | **À lancer une fois** dans Supabase : tables, droits, comptes |
-| `.github/workflows/keepalive.yml` | Robot qui empêche la mise en pause de Supabase |
+| `config.js` | **Edit**: your Supabase project URL and publishable key |
+| `settings.js` | **Edit**: app name, club name, logo, languages, colours |
+| `logo.png`, `icon-*.png`, `apple-touch-icon.png` | Your logo and home-screen icons |
+| `version.js` | App version: increase it after changing code (see "Updating") |
+| `lang/*.js` | Translations, one file per language |
+| `index.html`, `app.js`, `styles.css` | The app |
+| `sw.js`, `manifest.webmanifest` | Offline use, updates and home-screen install |
+| `supabase/schema.sql` | Database set-up, run once in Supabase |
+| `.github/workflows/keepalive.yml` | Keeps the free Supabase project from pausing |
+| `docs/` | Screenshot for this README |
 
 ---
 
-## Étape 1 : créer la base Supabase
+## Installation (30 to 45 minutes)
 
-1. Créez un compte sur https://supabase.com puis **New project**.
-   - Nom : `chrono-chouetbike` (libre).
-   - Région : choisissez une région **Europe** (par exemple Francfort).
-   - Notez le mot de passe de base de données proposé, même si l'appli ne s'en sert pas.
-2. Ouvrez `supabase/schema.sql` dans un éditeur de texte. **Tout en bas**, remplacez `votre.adresse@exemple.fr` par votre e-mail : ce sera le premier administrateur.
-3. Dans Supabase : **SQL Editor > New query**, collez tout le fichier, cliquez **Run**. Le message attendu est « Success. No rows returned ».
-4. Réglez les adresses de retour : **Authentication > URL Configuration**
-   - Site URL : `https://chrono.chouetbikeclub.fr`
-   - Redirect URLs : ajoutez `https://chrono.chouetbikeclub.fr/**`
-5. Réglez la confirmation par e-mail : **Authentication > Sign In / Providers > Email**.
-   Le service d'e-mail intégré de Supabase est prévu pour les tests : il est limité à 2 e-mails par heure et ne livre qu'aux adresses des membres de votre équipe Supabase. Deux possibilités :
-   - **Simple (conseillé pour démarrer)** : désactivez **Confirm email**. Un encadrant crée son compte et entre directement. La protection vient de la liste des encadrants : une adresse absente de la liste ne peut pas créer de compte. Ajoutez donc un encadrant à la liste juste avant qu'il fasse sa première connexion, et vérifiez dans l'écran Admin qu'il est bien marqué « compte créé ».
-   - **Plus strict** : laissez **Confirm email** activé et branchez votre propre envoi d'e-mails dans **Authentication > Emails > SMTP Settings** (une boîte mail de votre hébergeur convient). Cela active aussi « Mot de passe oublié ».
+Everything is done in a web browser, ideally on a computer.
 
-Les intitulés des menus Supabase peuvent varier légèrement d'une version à l'autre.
+### Step 1: create the Supabase database
 
-## Étape 2 : relier l'appli à la base
+1. Create an account at https://supabase.com, then **New project**. Pick a region close to your users and note the database password it suggests (the app does not use it).
+2. Open `supabase/schema.sql` from this repository and copy its whole content.
+3. In Supabase: **SQL Editor > New query**, paste it.
+4. **Still in the Supabase editor, just before running it**, go to the last lines and replace `admin@example.com` and `Admin Name` with your own email and name. You become the first admin. Do this only in Supabase, not in the file in your repository, so that your email never ends up on GitHub.
+5. Click **Run**. The expected result is "Success. No rows returned".
+6. **Authentication > URL Configuration**:
+   - Site URL: the address of your app, e.g. `https://chrono.example.org` (or `https://YOUR-USER.github.io/REPO/` without a custom domain).
+   - Redirect URLs: add the same address followed by `**`.
+7. **Email confirmation.** Supabase's built-in email service is meant for testing: it sends only a couple of emails per hour, and only to members of your Supabase team. Two options:
+   - **Simple (recommended to start)**: on the **Authentication > Sign In / Providers** page, in the **User Signups** section at the top, keep **Allow new users to sign up** on and turn **Confirm email** off, then save. Coaches then create their password and sign in at once. Only addresses in the coach list can create an account, so add each coach to the list just before their first sign-in, and check on the Admin screen that they show "account created".
+   - **Stricter**: keep **Confirm email** on and connect your own mail sender in **Authentication > Emails > SMTP Settings** (a mailbox from your web host works). This also enables "Forgot password".
 
-1. Dans Supabase : **Project Settings > API Keys**. Copiez la clé **Publishable** (elle commence par `sb_publishable_`). Si un bouton « Create new API keys » apparaît, cliquez dessus d'abord.
-2. L'adresse du projet (`https://xxxx.supabase.co`) se trouve dans **Project Settings > Data API** ou via le bouton **Connect**.
-3. Ouvrez `config.js` et remplacez les deux valeurs.
+   Supabase moves its settings around from time to time. If **Confirm email** is not where described, you can instead create each account yourself: **Authentication > Users > Add user > Create new user**, with **Auto Confirm User** ticked, after adding the address to the coach list.
 
-La clé « publishable » est conçue pour être visible dans une page web. Ne mettez jamais la clé « secret » dans ce dossier.
+### Step 2: connect the app to the database
 
-## Étape 3 : mettre l'appli sur GitHub Pages
+1. In Supabase, **Project Settings > API Keys**: copy the **Publishable** key (it starts with `sb_publishable_`). If you see a "Create new API keys" button, click it first.
+2. The project URL (`https://xxxx.supabase.co`, nothing after `.co`) is under **Project Settings > Data API**, or behind the **Connect** button.
+3. Put both values in `config.js`.
 
-1. Créez un compte sur https://github.com si besoin, puis **New repository**.
-   - Nom : `chrono` (libre). Visibilité : **Public** (obligatoire pour GitHub Pages avec un compte gratuit).
-2. Dans le dépôt : **Add file > Upload files**, glissez **tout le contenu** du dossier (y compris les dossiers `supabase` et `.github`, et le fichier `.nojekyll`), puis **Commit changes**.
-   Sur Mac et Windows, les fichiers commençant par un point sont masqués : affichez les fichiers cachés avant de glisser. Si `.github` ne passe pas, créez le fichier à la main avec **Add file > Create new file**, nom `.github/workflows/keepalive.yml`, en copiant son contenu.
-3. **Settings > Pages** : Source = **Deploy from a branch**, Branch = `main`, dossier `/ (root)`, **Save**.
-4. Toujours dans **Settings > Pages**, champ **Custom domain** : saisissez `chrono.chouetbikeclub.fr`, **Save**. GitHub ajoute un fichier `CNAME` au dépôt, c'est normal.
+The publishable key is designed to be visible in a web page. Never put the **secret** key in this repository.
 
-## Étape 4 : créer le sous-domaine chez OVH
+### Step 3: publish the app on GitHub Pages
 
-1. Espace client OVH > **Noms de domaine** > `chouetbikeclub.fr` > onglet **Zone DNS** > **Ajouter une entrée**.
-2. Type **CNAME**, sous-domaine `chrono`, cible `VOTRE-COMPTE-GITHUB.github.io.` (avec le point final).
-3. Attendez la propagation (de quelques minutes à quelques heures). Dans GitHub, **Settings > Pages** doit afficher « DNS check successful ». Cochez alors **Enforce HTTPS**.
+1. Create a GitHub account if needed, then a new **public** repository (GitHub Pages on a free account requires a public repository).
+2. Upload all the files of this folder, keeping the folders (`lang`, `docs`, `supabase`, `.github`) and the `.nojekyll` file. On Mac and Windows, files starting with a dot are hidden: show hidden files first. With git: `git add . && git commit -m "First version" && git push`.
+3. **Settings > Pages**: Source **Deploy from a branch**, branch `main`, folder `/ (root)`, **Save**. After a minute the app is at `https://YOUR-USER.github.io/REPO/`.
 
-Si vous changez de fournisseur de domaine plus tard, il suffira de recréer cette seule entrée CNAME chez le nouveau. Rien d'autre ne dépend d'OVH.
+### Step 4 (optional): use your own address
 
-## Étape 5 : première connexion et listes
+1. In **Settings > Pages > Custom domain**, enter e.g. `chrono.example.org` and save. GitHub adds a `CNAME` file to the repository.
+2. At your domain registrar, add a DNS record: type **CNAME**, name `chrono`, target `YOUR-USER.github.io.` (your GitHub user name, or organisation name if the repository belongs to one, followed by `.github.io` and a final dot; the repository name is not part of it).
+3. Once **Settings > Pages** shows "DNS check successful", tick **Enforce HTTPS**.
+4. Update the Site URL and Redirect URLs in Supabase (step 1, point 6).
 
-1. Ouvrez `https://chrono.chouetbikeclub.fr`, touchez **Première connexion**, saisissez l'e-mail déclaré à l'étape 1 et choisissez un mot de passe.
-2. **Admin > Jeunes** : ajoutez les jeunes un par un ou importez un `.csv` (colonnes `nom ; groupe`, le groupe est facultatif). Exemple :
+### Step 5: first sign-in and lists
+
+1. Open the app, tap **First sign-in**, enter the email you used in step 1 and choose a password.
+2. **Admin > Riders**: add riders one by one, or import a `.csv` with columns `name ; group` (group optional):
    ```
-   nom;groupe
-   Prénom Nom;Groupe 1
-   Prénom Nom;Groupe 2
+   name;group
+   First Last;Group 1
+   First Last;Group 2
    ```
-3. **Admin > Encadrants** : ajoutez chaque encadrant (ou `.csv` avec `nom ; e-mail ; rôle`, rôle = `admin` ou `encadrant`). Chacun fait ensuite **Première connexion** avec son adresse.
-4. Sur chaque téléphone : ouvrez le site puis « Ajouter à l'écran d'accueil » (menu du navigateur sur Android, bouton Partager sur iPhone).
+3. **Admin > Coaches**: add each coach, or import a `.csv` with `name ; email ; role` (role = `admin` or `coach`). Each coach then taps **First sign-in** with that address.
+4. On each phone, open the app and choose "Add to Home Screen" (browser menu on Android, Share button on iPhone).
 
-### Vérification rapide après installation
+### Quick check after installation
 
-À faire une fois, avec deux téléphones côte à côte :
+With two phones side by side:
 
-- [ ] Créer une session, y ajouter deux jeunes : elle apparaît sur le second téléphone.
-- [ ] Poste « Départ » sur l'un, « Arrivée » sur l'autre : un départ fait tourner le chrono sur les deux.
-- [ ] Mode avion sur le téléphone du départ, lancer un jeune, couper le mode avion : la pastille passe de « Hors ligne · 1 en attente » à « Synchronisé » et le chrono apparaît sur l'autre.
-- [ ] Dans GitHub, onglet **Actions > Garder Supabase éveillé > Run workflow** : la coche doit être verte.
+- [ ] Create a session with two riders: it appears on the second phone.
+- [ ] Post "Start" on one phone, "Finish" on the other: a start makes the stopwatch run on both.
+- [ ] Turn on airplane mode on the start phone, start a rider, turn airplane mode off: the badge goes from "Offline · 1 waiting" to "Synced" and the rider appears running on the other phone.
+- [ ] On GitHub, **Actions > Keep Supabase awake > Run workflow**: the run turns green.
 
 ---
 
-## Utilisation sur le terrain
+## Customise the app
 
-- **Avant de partir** : ouvrez l'appli une fois avec du réseau (elle se met en cache et vous connecte), créez la session et choisissez les participants.
-- **Poste** : chaque encadrant choisit son poste en haut de la session. Le bouton de chaque jeune en dépend.
-  - *Départ* : bouton Départ. « Départ groupé » permet de cocher plusieurs jeunes et de les lancer au même instant.
-  - *Inter* : bouton Inter pour les jeunes en course. Le rang au temps intermédiaire s'affiche sous le nom et la liste suit l'ordre sur le parcours.
-  - *Arrivée* : bouton Stop.
-  - *Dép./Arr.* (circuit) : Départ puis Stop. Stop fige l'instant ; on choisit ensuite Tour ou Fin, ligne par ligne, ce qui permet d'enchaîner plusieurs Stop quand les jeunes passent groupés.
-- **Erreur de frappe** : le bandeau « Annuler » reste 7 secondes. Un passage se supprime aussi dans Résultats.
-- **Réseau faible** : chaque appui est enregistré sur le téléphone avec son heure exacte, puis envoyé dès que possible. La pastille indique le nombre d'envois en attente ; la toucher force une synchronisation.
-- **Départ pas encore reçu** : à l'Arrivée ou à l'Inter, un jeune non parti a un bouton en pointillés. Touchez-le à son passage : le temps est calculé quand le départ de l'autre encadrant arrive.
-- **Résultats** : classement au meilleur temps, moyenne, moins bon temps, détail des inters et tours, export `.csv`.
-- **Tracé GPX** : import après la séance. Si vous indiquez quel jeune portait l'appareil, distance et vitesses de chacun de ses passages sont calculées.
-- **Archiver** : bouton en bas de l'onglet Chrono. Les sessions archivées se retrouvent en bas de l'accueil.
+### Name, logo and colours
 
-### Précision
+Everything is in `settings.js`:
 
-Les horloges des téléphones sont alignées sur celle du serveur à chaque connexion, et l'heure retenue est celle où le doigt touche l'écran. La limite est donc le réflexe de l'encadrant, de l'ordre de un à deux dixièmes de seconde. C'est adapté à l'entraînement, pas à un classement officiel.
+- `appName`: the title shown in the app (e.g. `'Chrono'`).
+- `clubName`: shown under the title and on the sign-in screen. Use `''` to hide it.
+- `logo`: the image file shown in the app. Replace `logo.png` with your own (a PNG with a transparent background works best).
+- `mode`: `'auto'` follows each phone's light or dark setting, `'dark'` or `'light'` forces one.
+- `dark` and `light`: the colours of each theme, as hex codes like `'#2A5684'`. Each colour is described in the file. Keep enough contrast between `bg` and `ink` (background and text) and between each button colour and `actInk` (text on timing buttons).
 
-## À savoir
+Changes to `settings.js` reach the phones by themselves; see "Updating".
 
-- **Pause du plan gratuit Supabase** : un projet gratuit est mis en pause après 7 jours sans activité, et peut être relancé depuis le tableau de bord pendant 90 jours. Le robot `keepalive.yml` interroge la base deux fois par semaine pour l'éviter. GitHub peut suspendre ce robot si le dépôt reste longtemps sans modification ; il prévient par e-mail et un clic le réactive.
-- **Sauvegardes** : le plan gratuit n'en fournit pas. Exportez les résultats importants en `.csv`.
-- **Mot de passe oublié** : fonctionne seulement si vous avez branché un envoi d'e-mails (étape 1, point 5). Sinon, supprimez l'utilisateur dans Supabase (**Authentication > Users**) et demandez à l'encadrant de refaire **Première connexion**.
-- **Retirer un encadrant** : Admin > Encadrants > Retirer. Son accès aux données est coupé immédiatement.
-- **Retirer un jeune** : il disparaît des listes de sélection, ses anciens temps restent lisibles.
-- **Données personnelles** : la base contient des noms de mineurs. Gardez la région Europe, limitez la liste des encadrants aux personnes concernées et informez les familles selon les usages du club.
-- **Mettre l'appli à jour** : remplacez les fichiers dans GitHub et augmentez le numéro dans `sw.js` (`chrono-v1` devient `chrono-v2`). Les téléphones prennent la nouvelle version à la deuxième ouverture.
-- **Dépannage** : si l'écran indique que l'appli n'est pas reliée à sa base, `config.js` contient encore les valeurs d'exemple. Si « Première connexion » est refusée, l'adresse n'est pas dans la liste des encadrants (ou pas écrite à l'identique).
+Three things live in other files because the phone reads them before the app starts:
+
+- **Home-screen icons**: replace `icon-192.png` (192×192), `icon-512.png` (512×512), `icon-maskable-512.png` (512×512, logo within the central 80%, since Android crops the corners) and `apple-touch-icon.png` (180×180).
+- **Name under the home-screen icon**: `name` and `short_name` in `manifest.webmanifest`.
+- **Top bar colour while loading**: `theme_color` and `background_color` in `manifest.webmanifest`, and `theme-color` in `index.html`. Use the `bg` colour of your theme.
+
+### Language
+
+In `settings.js`:
+
+- `languages`: the languages offered, e.g. `['en', 'fr']`. Each one is a file in the `lang/` folder. The first one is used when nothing else matches.
+- `language`: `'auto'` uses the phone's language when it is in the list, or set one code to force it, e.g. `'fr'`.
+
+Each user can also change language at the bottom of the home and sign-in screens; that choice is remembered on their phone.
+
+### Add a language
+
+1. Copy `lang/en.js` to `lang/xx.js`, where `xx` is the two-letter language code (`de`, `it`, `es`, `nl`…).
+2. In the new file, change `self.CHRONO_LANGS.en` to `self.CHRONO_LANGS.xx`, set `_name` (shown in the language menu, e.g. `'Deutsch'`) and `_locale` (for dates and numbers, e.g. `'de-DE'`).
+3. Translate the text on the right of each line. Keep the `{placeholders}` as they are. Lines like `{ one: '…', other: '…' }` hold the singular and plural forms. The few lines written as small functions (`ordinal`, `toast.ridersImported`) can be adapted or left in English.
+4. Add `'xx'` to `languages` in `settings.js`, and increase `version.js`.
+
+A missing line falls back to English, so a partial translation still works.
+
+---
+
+## Updating
+
+### How phones get a new version
+
+The app installed on a phone keeps a copy of its files so it works without network. Every time it is opened (or brought back to the foreground) with a connection, it checks for a new version in the background. When one is found, a banner appears: **"A new version of the app is ready" · Reload**. Tapping **Reload** switches to it. Times already recorded are never lost: they are saved on the phone before anything else.
+
+There is also a **Check for updates** link at the bottom of the home screen, and the current version number is shown next to it.
+
+So there is nothing special to do on the phones: open the app, wait a few seconds, tap **Reload**. If the banner does not appear, closing the app completely and opening it again also works.
+
+### What to do after changing files
+
+- **`settings.js` or `config.js`**: just publish (commit and push). Phones detect the change themselves.
+- **Anything else** (`app.js`, `styles.css`, `index.html`, a file in `lang/`, the logo): also increase the number in `version.js`, e.g. `'1.1.0'` to `'1.1.1'`, then publish. Without this, phones keep the previous version until their copy refreshes on its own.
+
+GitHub Pages takes about a minute to publish, and may serve the previous files for a few more minutes.
+
+---
+
+## Good to know
+
+- **Free Supabase plan pausing**: a free project is paused after 7 days without activity, and can be restored from the dashboard for 90 days. The `keepalive.yml` job calls the database twice a week to prevent this. GitHub may disable that job after long periods without commits to the repository; it emails you and one click re-enables it.
+- **Backups**: the free plan has none. Export important results to `.csv`.
+- **Forgot password**: works only with your own mail sender (step 1, point 7). Otherwise delete the user in Supabase (**Authentication > Users**) and ask the coach to do **First sign-in** again.
+- **Removing a coach**: Admin > Coaches > Remove. Their access to the data stops at once.
+- **Removing a rider**: they disappear from selection lists; their past times stay readable.
+- **Personal data**: the database holds names of young riders. Choose a Supabase region suited to your country's rules, keep the coach list to the people who need it, and inform families according to your club's practice.
+- **Timing accuracy**: the time kept is the moment the finger touches the screen, with phone clocks aligned on the server clock at each connection. The limit is the coach's reaction time, typically one or two tenths of a second: fine for training, not for official results.
+- **Troubleshooting**: "not connected to its database" means `config.js` still has the example values or a wrong URL. A refused "First sign-in" means the address is not in the coach list, or is spelled differently.
