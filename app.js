@@ -877,8 +877,8 @@ async function buildReport(s, opt) {
     // Map (a quarter of a page) with the course and GPS recordings next to it
     const gpsTable = (x, w) => {
       heading(t('export.trackData'), x, w);
-      table([{ label: t('export.rider'), bold: true }, { label: t('export.totalDistance'), w: 48, align: 'right' }, { label: t('export.totalDuration'), w: 46, align: 'right' }, { label: t('gpx.climb'), w: 40, align: 'right' }],
-        tracks.map(tk => { const st = trackStats(tk.pts); return [tk.riderId ? rname(tk.riderId) : tk.name, metres(st.dist), st.dur ? fmtDur(st.dur) : '–', Math.round(st.up) + ' m']; }), { x: single ? x : null, w });
+      table([{ label: t('export.totalDistance'), align: 'right' }, { label: t('export.totalDuration'), align: 'right' }, { label: t('gpx.climb'), align: 'right' }],
+        tracks.map(tk => { const st = trackStats(tk.pts); return [metres(st.dist), st.dur ? fmtDur(st.dur) : '–', Math.round(st.up) + ' m']; }), { x: single ? x : null, w });
     };
     const courseInfo = (x, w) => {
       heading(t('export.course'), x, w);
