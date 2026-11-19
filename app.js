@@ -82,7 +82,7 @@ const $ = id => document.getElementById(id);
 
 /* ---------- screen state ---------- */
 const ui = { view: db.me ? 'home' : 'login', sid: null, tab: 'chrono', poste: L.get('poste', 'start'), sheet: null, adminTab: 'youth',
-  multi: false, sel: [], showArch: false, det: {}, cat: '', exp: { analysis: true, map: true, track: true, runs: true }, pdf: null, loginMode: 'in', undo: null, confirmDel: false, busy: false };
+  multi: false, sel: [], showArch: false, det: {}, cat: '', exp: { analysis: true, map: true, track: true, runs: false }, pdf: null, loginMode: 'in', undo: null, confirmDel: false, busy: false };
 const app = $('app');
 let R = [], ORPH = {};            // runs computed for the open session, taps received before their start
 let netOK = navigator.onLine !== false, authed = false, pushing = false;
@@ -685,11 +685,12 @@ const HELVB = [278,333,474,556,556,889,722,238,333,333,389,584,278,333,278,278,5
 const CP1252 = { 0x20AC: 128, 0x201A: 130, 0x0192: 131, 0x201E: 132, 0x2026: 133, 0x2020: 134, 0x2021: 135, 0x02C6: 136, 0x2030: 137, 0x0160: 138, 0x2039: 139, 0x0152: 140, 0x017D: 142, 0x2018: 145, 0x2019: 146, 0x201C: 147, 0x201D: 148, 0x2022: 149, 0x2013: 150, 0x2014: 151, 0x02DC: 152, 0x2122: 153, 0x0161: 154, 0x203A: 155, 0x0153: 156, 0x017E: 158, 0x0178: 159, 0x2212: 45, 0x2192: 150, 0x202F: 32 };
 const winAnsi = str => { const out = []; for (const ch of String(str)) { const u = ch.codePointAt(0); out.push(u < 128 ? u : (u >= 160 && u <= 255) ? u : CP1252[u] || 63); } return out; };
 function makePdf(title) {
-  const W = 595.28, H = 841.89, pages = [], images = [], f = v => (+v).toFixed(2);
+  const W = 595.28, A4 = 841.89, pages = [], images = [], f = v => (+v).toFixed(2);
   let ops = null;
   const rgb = hex => { let h = String(hex || '#000').replace('#', ''); if (h.length === 3) h = h.split('').map(c => c + c).join(''); return [0, 2, 4].map(i => (parseInt(h.slice(i, i + 2), 16) / 255).toFixed(3)).join(' '); };
   const P = {
-    W, H, pages,
+    W, H: A4, A4, pages,   // H: height used to place content (larger while laying out one tall page)
+    wrap(i, pre, post) { pages[i].unshift(pre); pages[i].push(post); },
     page() { ops = []; pages.push(ops); },
     goto(i) { ops = pages[i]; },
     width(s, size, bold) { const T = bold ? HELVB : HELV; return winAnsi(s).reduce((a, c) => a + (c >= 32 ? T[c - 32] : 556), 0) * size / 1000; },
@@ -697,16 +698,16 @@ function makePdf(title) {
     text(x, y, s, o) {
       o = o || {}; const size = o.size || 10, bold = !!o.bold; s = String(s); if (o.max) s = P.fit(s, size, bold, o.max);
       const w = P.width(s, size, bold), xx = o.align === 'right' ? x - w : o.align === 'center' ? x - w / 2 : x;
-      ops.push(`BT /${bold ? 'F2' : 'F1'} ${size} Tf ${rgb(o.color || '#14202E')} rg ${f(xx)} ${f(H - y)} Td <${winAnsi(s).map(c => c.toString(16).padStart(2, '0')).join('')}> Tj ET`);
+      ops.push(`BT /${bold ? 'F2' : 'F1'} ${size} Tf ${rgb(o.color || '#14202E')} rg ${f(xx)} ${f(P.H - y)} Td <${winAnsi(s).map(c => c.toString(16).padStart(2, '0')).join('')}> Tj ET`);
       return w;
     },
-    rect(x, y, w, h, o) { o = o || {}; ops.push(`q ${o.fill ? rgb(o.fill) + ' rg ' : ''}${o.stroke ? rgb(o.stroke) + ' RG ' + f(o.lw || .5) + ' w ' : ''}${f(x)} ${f(H - y - h)} ${f(w)} ${f(h)} re ${o.fill && o.stroke ? 'B' : o.fill ? 'f' : 'S'} Q`); },
-    line(x1, y1, x2, y2, o) { o = o || {}; ops.push(`q ${rgb(o.color || '#999999')} RG ${f(o.lw || .5)} w ${o.dash ? '[' + o.dash.join(' ') + '] 0 d ' : ''}${f(x1)} ${f(H - y1)} m ${f(x2)} ${f(H - y2)} l S Q`); },
+    rect(x, y, w, h, o) { o = o || {}; ops.push(`q ${o.fill ? rgb(o.fill) + ' rg ' : ''}${o.stroke ? rgb(o.stroke) + ' RG ' + f(o.lw || .5) + ' w ' : ''}${f(x)} ${f(P.H - y - h)} ${f(w)} ${f(h)} re ${o.fill && o.stroke ? 'B' : o.fill ? 'f' : 'S'} Q`); },
+    line(x1, y1, x2, y2, o) { o = o || {}; ops.push(`q ${rgb(o.color || '#999999')} RG ${f(o.lw || .5)} w ${o.dash ? '[' + o.dash.join(' ') + '] 0 d ' : ''}${f(x1)} ${f(P.H - y1)} m ${f(x2)} ${f(P.H - y2)} l S Q`); },
     circle(x, y, r, o) {
-      o = o || {}; const k = .5523 * r, c = H - y;
+      o = o || {}; const k = .5523 * r, c = P.H - y;
       ops.push(`q ${o.fill ? rgb(o.fill) + ' rg ' : ''}${o.stroke ? rgb(o.stroke) + ' RG ' + f(o.lw || 1) + ' w ' : ''}${f(x + r)} ${f(c)} m ${f(x + r)} ${f(c + k)} ${f(x + k)} ${f(c + r)} ${f(x)} ${f(c + r)} c ${f(x - k)} ${f(c + r)} ${f(x - r)} ${f(c + k)} ${f(x - r)} ${f(c)} c ${f(x - r)} ${f(c - k)} ${f(x - k)} ${f(c - r)} ${f(x)} ${f(c - r)} c ${f(x + k)} ${f(c - r)} ${f(x + r)} ${f(c - k)} ${f(x + r)} ${f(c)} c ${o.fill && o.stroke ? 'B' : o.fill ? 'f' : 'S'} Q`);
     },
-    image(img, x, y, w, h) { let i = images.indexOf(img); if (i < 0) i = images.push(img) - 1; ops.push(`q ${f(w)} 0 0 ${f(h)} ${f(x)} ${f(H - y - h)} cm /Im${i} Do Q`); },
+    image(img, x, y, w, h) { let i = images.indexOf(img); if (i < 0) i = images.push(img) - 1; ops.push(`q ${f(w)} 0 0 ${f(h)} ${f(x)} ${f(P.H - y - h)} cm /Im${i} Do Q`); },
     build() {
       const enc = new TextEncoder(), chunks = [], offs = []; let len = 0;
       const put = x => { const b = typeof x === 'string' ? enc.encode(x) : x; chunks.push(b); len += b.length; };
@@ -720,7 +721,7 @@ function makePdf(title) {
       images.forEach((im, i) => obj(5 + i, () => { put(`<< /Type /XObject /Subtype /Image /Width ${im.w} /Height ${im.h} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${im.bytes.length} >>\nstream\n`); put(im.bytes); put('\nendstream'); }));
       const xo = images.map((_, i) => `/Im${i} ${5 + i} 0 R`).join(' ');
       pages.forEach((p, i) => {
-        obj(first + i * 2, () => put(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${f(W)} ${f(H)}] /Resources << /Font << /F1 3 0 R /F2 4 0 R >>${xo ? ' /XObject << ' + xo + ' >>' : ''} >> /Contents ${first + i * 2 + 1} 0 R >>`));
+        obj(first + i * 2, () => put(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${f(W)} ${f(A4)}] /Resources << /Font << /F1 3 0 R /F2 4 0 R >>${xo ? ' /XObject << ' + xo + ' >>' : ''} >> /Contents ${first + i * 2 + 1} 0 R >>`));
         obj(first + i * 2 + 1, () => { const b = enc.encode(p.join('\n')); put(`<< /Length ${b.length} >>\nstream\n`); put(b); put('\nendstream'); });
       });
       const u16 = s => '<FEFF' + [...String(s)].map(c => { const u = c.codePointAt(0); return u > 0xFFFF ? '' : u.toString(16).padStart(4, '0'); }).join('') + '>';
@@ -787,177 +788,183 @@ function mapImage(tracks, C, W, H) {
 }
 
 // Session report: everything is computed from the same runs as the Results and Analysis tabs.
+// It is first laid out on one tall page and shrunk to fit A4; a very large group (text would get
+// too small) is laid out again over several pages instead.
 async function buildReport(s, opt) {
   const logo = await loadLogo(), C = course(s.id), pal = Object.assign({ accent: '#2A5684', go: '#16794A', stop: '#C33A2F' }, SET.light || {});
   const INK = '#14202E', MUTED = '#5B6B80', LINE = '#D5DEE8', ZEBRA = '#F3F6FA', ACC = pal.accent;
   const fin = R.filter(x => x.end != null && inCat(x.riderId)), byRider = r => fin.filter(x => x.riderId === r).sort((a, b) => a.start - b.start);
   const bestOf = r => Math.min(...byRider(r).map(x => x.end - x.start));
   const riders = [...new Set(fin.map(x => x.riderId))].sort((a, b) => bestOf(a) - bestOf(b));
+  const tracks = tracksOf(s.id).filter(tk => tk.pts.length > 1);
+  const MAPW = 300, MAPH = 172, mapImg = opt.map && tracks.length ? await mapImage(tracks, C, 1000, Math.round(1000 * MAPH / MAPW)) : null;
   const title = s.name + ' · ' + fDate(s.date) + (ui.cat ? ' · ' + ui.cat : '');
-  const P = makePdf(title), M = 40, CW = P.W - 2 * M, BOTTOM = P.H - 48; let y = M;
-  const sec = v => num(v / 1000, 2) + ' s';
-  const newPage = () => { P.page(); y = M; };
-  const room = h => { if (y + h > BOTTOM) { newPage(); return true; } return false; };
-  const heading = (txt, sub) => { room(46); y += 14; P.text(M, y, txt.toUpperCase(), { size: 9, bold: true, color: ACC }); y += 6; P.line(M, y, M + CW, y, { color: ACC, lw: 1 }); y += 4; if (sub) { y += 10; P.text(M, y, sub, { size: 8, color: MUTED, max: CW }); y += 2; } y += 6; };
-  // Table with repeated header row on each page. cols: [{label, w, align, bold}], rows: arrays of strings
-  const table = (cols, rows, o) => {
-    o = o || {}; const rh = 16, flex = cols.find(c => !c.w), fixed = cols.reduce((a, c) => a + (c.w || 0), 0); if (flex) flex.w = CW - fixed;
-    const head = () => { P.rect(M, y, CW, rh, { fill: ZEBRA }); let x = M; cols.forEach(c => { P.text(c.align === 'right' ? x + c.w - 4 : x + 4, y + 11, c.label, { size: 7.5, bold: true, color: MUTED, align: c.align, max: c.w - 6 }); x += c.w; }); y += rh; };
-    room(rh * 2); head();
-    rows.forEach((r, i) => {
-      if (room(rh)) head();
-      if (o.highlight && o.highlight(i)) P.rect(M, y, CW, rh, { fill: '#EAF1FA' });
-      let x = M; cols.forEach((c, j) => { const v = r[j]; if (v != null && v !== '') P.text(c.align === 'right' ? x + c.w - 4 : x + 4, y + 11, v, { size: 9, bold: c.bold || (o.boldCell && o.boldCell(i, j)), color: c.muted ? MUTED : INK, align: c.align, max: c.w - 6 }); x += c.w; });
-      y += rh; P.line(M, y, M + CW, y, { color: LINE, lw: .4 });
-    });
-    y += 4;
-  };
+  const sec = v => num(v / 1000, 2) + ' s', M = 36, FOOT = 40;
 
-  newPage();
-  // Header
-  let tx = M;
-  if (logo) { const h = 52, w = h * logo.w / logo.h; P.image(logo, M, y, w, h); tx = M + w + 14; }
-  P.text(tx, y + 18, s.name, { size: 18, bold: true, max: M + CW - tx });
-  P.text(tx, y + 34, [SET.clubName, fDate(s.date), ui.cat ? t('cat.label') + ' ' + ui.cat : ''].filter(Boolean).join(' · '), { size: 10, color: MUTED, max: M + CW - tx });
-  const segN = C ? Object.keys(C.seg).filter(k => k !== 'total').length : 0;
-  if (C) P.text(tx, y + 48, [C.total ? t('gpx.courseLength') + ' ' + metres(C.total) : '', C.lap ? t('gpx.lapLength') + ' ' + metres(C.lap) : '', segN > 1 ? t('export.sectorsN', { n: segN }) : ''].filter(Boolean).join(' · '), { size: 9, color: MUTED, max: M + CW - tx });
-  y += 66;
-  if (!fin.length) { P.text(M, y + 10, t('analysis.none'), { size: 10, color: MUTED, max: CW }); }
-  else {
-    // Summary tiles
+  const draw = (P, single) => {
+    const CW = P.W - 2 * M, BOTTOM = single ? Infinity : P.A4 - FOOT - 8; let y = M;
+    const newPage = () => { P.page(); y = M; };
+    const room = h => { if (y + h > BOTTOM) { newPage(); return true; } return false; };
+    const heading = (txt, x, w, sub) => { x = x == null ? M : x; w = w || CW; y += 9; P.text(x, y + 7, txt.toUpperCase(), { size: 7.5, bold: true, color: ACC }); if (sub) P.text(x + w, y + 7, sub, { size: 6.5, color: MUTED, align: 'right', max: w - P.width(txt.toUpperCase(), 7.5, true) - 12 }); y += 10; P.line(x, y, x + w, y, { color: ACC, lw: .8 }); y += 3; };
+    // Compact table; columns without w share the remaining width. Breaks across pages only in full width.
+    const table = (cols, rows, o) => {
+      o = o || {}; const x0 = o.x == null ? M : o.x, TW = o.w || CW, rh = 12.5, free = cols.filter(c => !c.w), fixed = cols.reduce((a, c) => a + (c.w || 0), 0);
+      free.forEach(c => { c.w = (TW - fixed) / free.length; });
+      const head = () => { P.rect(x0, y, TW, rh, { fill: ZEBRA }); let x = x0; cols.forEach(c => { P.text(c.align === 'right' ? x + c.w - 3 : x + 3, y + 8.8, c.label, { size: 6.6, bold: true, color: MUTED, align: c.align, max: c.w - 4 }); x += c.w; }); y += rh; };
+      if (o.x == null) room(rh * 3); head();
+      rows.forEach((r, i) => {
+        if (o.x == null && room(rh)) head();
+        if (o.highlight && o.highlight(i)) P.rect(x0, y, TW, rh, { fill: '#EAF1FA' });
+        let x = x0; cols.forEach((c, j) => { const v = r[j]; if (v != null && v !== '') P.text(c.align === 'right' ? x + c.w - 3 : x + 3, y + 9, v, { size: 8, bold: c.bold || (o.boldCell && o.boldCell(i, j)), color: c.muted ? MUTED : INK, align: c.align, max: c.w - 4 }); x += c.w; });
+        y += rh; P.line(x0, y, x0 + TW, y, { color: LINE, lw: .35 });
+      });
+      y += 2;
+    };
+    // Two blocks side by side (single page), or one under the other (several pages)
+    const side = (leftW, left, right) => {
+      if (!single) { left(M, CW); right(M, CW); return; }
+      const y0 = y; left(M, leftW); const y1 = y; y = y0; right(M + leftW + 14, CW - leftW - 14); y = Math.max(y, y1);
+    };
+
+    newPage();
+    // Header
+    let tx = M;
+    if (logo) { const h = 40, w = h * logo.w / logo.h; P.image(logo, M, y, w, h); tx = M + w + 12; }
+    P.text(tx, y + 15, s.name, { size: 15, bold: true, max: M + CW - tx });
+    P.text(tx, y + 28, [SET.clubName, fDate(s.date), ui.cat ? t('cat.label') + ' ' + ui.cat : ''].filter(Boolean).join(' · '), { size: 8.5, color: MUTED, max: M + CW - tx });
+    if (C) P.text(tx, y + 39, [C.total ? t('gpx.courseLength') + ' ' + metres(C.total) : '', C.lap ? t('gpx.lapLength') + ' ' + metres(C.lap) : ''].filter(Boolean).join(' · '), { size: 8, color: MUTED, max: M + CW - tx });
+    y += 48;
+    if (!fin.length) { P.text(M, y + 10, t('analysis.none'), { size: 9, color: MUTED, max: CW }); return y + 20; }
+
+    // Summary
     const top = bestOf(riders[0]), bests = riders.map(bestOf), bestRun = byRider(riders[0]).find(x => x.end - x.start === top), bestSpeed = C ? kmh(runDist(bestRun, C), top) : null;
     const tiles = [[t('analysis.runs'), String(fin.length), nRiders(riders.length)], [t('analysis.sessionBest'), fmt(top), rname(riders[0])], [t('analysis.medianBest'), fmt(med(bests)), t('analysis.medianBestSub')],
       bestSpeed ? [t('analysis.topSpeed'), num(bestSpeed, 1) + ' km/h', t('analysis.onBestRun')] : [t('analysis.spread'), '+' + sec(Math.max(...bests) - top), t('analysis.spreadSub')]];
-    const tw = (CW - 24) / 4; tiles.forEach((tl, i) => { const x = M + i * (tw + 8); P.rect(x, y, tw, 50, { stroke: LINE, lw: .8 }); P.text(x + 8, y + 13, tl[0], { size: 7.5, color: MUTED, max: tw - 14 }); P.text(x + 8, y + 31, tl[1], { size: 15, bold: true, max: tw - 14 }); P.text(x + 8, y + 43, tl[2], { size: 7.5, color: MUTED, max: tw - 14 }); });
-    y += 62;
+    const tw = (CW - 18) / 4; tiles.forEach((tl, i) => { const x = M + i * (tw + 6); P.rect(x, y, tw, 36, { stroke: LINE, lw: .7 }); P.text(x + 6, y + 10, tl[0], { size: 6.6, color: MUTED, max: tw - 10 }); P.text(x + 6, y + 23, tl[1], { size: 12, bold: true, max: tw - 10 }); P.text(x + 6, y + 32, tl[2], { size: 6.6, color: MUTED, max: tw - 10 }); });
+    y += 40;
 
     // Ranking
-    const cats = catsOf(riders), showCat = cats.length > 0, catRank = showCat && !ui.cat;
-    const cols = [{ label: '#', w: 22, align: 'right', bold: true }, { label: t('csv.name'), bold: true }];
-    if (showCat) cols.push({ label: t('cat.short'), w: 44, muted: true });
-    if (catRank) cols.push({ label: t('export.catRank'), w: 40, align: 'right' });
-    cols.push({ label: t('export.runsShort'), w: 36, align: 'right' }, { label: t('results.best'), w: 52, align: 'right', bold: true }, { label: t('results.avg'), w: 52, align: 'right' }, { label: t('export.slowest'), w: 52, align: 'right', muted: true }, { label: t('export.gap'), w: 50, align: 'right' });
-    if (C && (C.total || C.lap)) cols.push({ label: 'km/h', w: 38, align: 'right' });
-    const rows = riders.map((r, i) => {
-      const v = byRider(r).map(x => x.end - x.start), b = Math.min(...v), avg = v.reduce((a, c) => a + c, 0) / v.length, row = [String(i + 1), rname(r)];
+    const cats = catsOf(riders), showCat = cats.length > 0, catRank = showCat && !ui.cat, speed = C && (C.total || C.lap);
+    const rc = [{ label: '#', w: 18, align: 'right', bold: true }, { label: t('csv.name'), bold: true }];
+    if (showCat) rc.push({ label: t('cat.short'), w: 38, muted: true });
+    if (catRank) rc.push({ label: t('export.catRank'), w: 36, align: 'right' });
+    rc.push({ label: t('export.runsShort'), w: 30, align: 'right' }, { label: t('results.best'), w: 46, align: 'right', bold: true }, { label: t('results.avg'), w: 46, align: 'right' }, { label: t('export.slowest'), w: 46, align: 'right', muted: true }, { label: t('export.gap'), w: 46, align: 'right' });
+    if (speed) rc.push({ label: 'km/h', w: 32, align: 'right' });
+    heading(t('export.ranking'), null, null, ui.cat ? t('export.rankingCat', { cat: ui.cat }) : catRank ? t('export.rankingHelp') : '');
+    table(rc, riders.map((r, i) => {
+      const v = byRider(r).map(x => x.end - x.start), b = Math.min(...v), row = [String(i + 1), rname(r)];
       if (showCat) row.push(rcat(r));
       if (catRank) row.push(rcat(r) ? String(riders.filter(x => rcat(x) === rcat(r)).indexOf(r) + 1) : '');
-      row.push(String(v.length), fmt(b), fmt(avg), fmt(Math.max(...v)), i ? '+' + sec(b - bestOf(riders[0])) : '');
-      if (C && (C.total || C.lap)) { const d = runDist(byRider(r).find(x => x.end - x.start === b), C); row.push(d ? num(kmh(d, b), 1) : ''); }
+      row.push(String(v.length), fmt(b), fmt(v.reduce((a, c) => a + c, 0) / v.length), fmt(Math.max(...v)), i ? '+' + sec(b - top) : '');
+      if (speed) { const d = runDist(byRider(r).find(x => x.end - x.start === b), C); row.push(d ? num(kmh(d, b), 1) : ''); }
       return row;
-    });
-    heading(t('export.ranking'), ui.cat ? t('export.rankingCat', { cat: ui.cat }) : catRank ? t('export.rankingHelp') : '');
-    table(cols, rows, { highlight: i => i === 0 });
+    }), { highlight: i => i === 0 });
 
-    // Map of the tracks, with the course points and lengths
-    const tracks = tracksOf(s.id).filter(tk => tk.pts.length > 1);
-    if (opt.map && tracks.length) {
-      const img = await mapImage(tracks, C, 1100, 640);
-      if (img) {
-        const h = CW * img.h / img.w;
-        heading(t('export.map'), [C && C.total ? t('gpx.courseLength') + ' ' + metres(C.total) : '', C && C.lap ? t('gpx.lapLength') + ' ' + metres(C.lap) : '', ...(C ? Object.keys(C.seg).filter(k => k !== 'total').map(k => { const [a, b] = k.split('>'); return gateShort(a) + '–' + gateShort(b) + ' ' + metres(C.seg[k]); }) : [])].filter(Boolean).join(' · ') || t('export.mapNoCourse'));
-        room(h + 18); P.image(img, M, y, CW, h); P.rect(M, y, CW, h, { stroke: LINE, lw: .6 }); y += h + 10;
-        P.text(M, y, [C ? t('export.mapLegend') : '', img.tiles ? '© OpenStreetMap contributors' : ''].filter(Boolean).join('   ·   '), { size: 7, color: MUTED, max: CW }); y += 8;
-      }
-    }
+    // Map (a quarter of a page) with the course and GPS recordings next to it
+    const gpsTable = (x, w) => {
+      heading(t('export.trackData'), x, w);
+      table([{ label: t('export.track'), bold: true }, { label: t('gpx.distance'), w: 46, align: 'right' }, { label: t('gpx.duration'), w: 44, align: 'right' }, { label: t('gpx.climb'), w: 40, align: 'right' }],
+        tracks.map(tk => { const st = trackStats(tk.pts); return [tk.riderId ? rname(tk.riderId) : tk.name, metres(st.dist), st.dur ? fmtDur(st.dur) : '–', Math.round(st.up) + ' m']; }), { x: single ? x : null, w });
+    };
+    const courseInfo = (x, w) => {
+      heading(t('export.course'), x, w);
+      const lines = C ? [[t('gpx.courseLength'), C.total ? metres(C.total) : ''], [t('gpx.lapLength'), C.lap ? metres(C.lap) : ''], ...Object.keys(C.seg).filter(k => k !== 'total').map(k => { const [a, b] = k.split('>'); return [gateLabel(a) + ' – ' + gateLabel(b), metres(C.seg[k])]; })].filter(l => l[1]) : [];
+      if (!lines.length) { P.text(x, y + 8, t('export.mapNoCourse'), { size: 7, color: MUTED, max: w }); y += 22; return; }
+      lines.forEach(([l, v]) => { P.text(x, y + 9, l, { size: 8, color: MUTED, max: w - 60 }); P.text(x + w, y + 9, v, { size: 8, bold: true, align: 'right' }); y += 12; });
+      P.text(x, y + 8, t('export.mapLegend'), { size: 6.5, color: MUTED, max: w }); y += 12;
+    };
+    if (mapImg) {
+      heading(t('export.map'));
+      if (!single) room(MAPH + 10);
+      const y0 = y; P.image(mapImg, M, y, MAPW, MAPH); P.rect(M, y, MAPW, MAPH, { stroke: LINE, lw: .5 });
+      if (mapImg.tiles) P.text(M + MAPW - 3, y + MAPH - 3, '© OpenStreetMap contributors', { size: 5.5, color: MUTED, align: 'right' });
+      if (single) { y = y0 - 10; courseInfo(M + MAPW + 14, CW - MAPW - 14); if (opt.track) gpsTable(M + MAPW + 14, CW - MAPW - 14); y = Math.max(y, y0 + MAPH + 4); }
+      else { y += MAPH + 4; courseInfo(M, CW); if (opt.track) gpsTable(M, CW); }
+    } else if (opt.track && tracks.length) gpsTable(M, CW);
 
-    // Data of the whole recording of each GPS device (.fit / .gpx)
-    if (opt.track && tracks.length) {
-      heading(t('export.trackData'), t('export.trackDataHelp'));
-      table([{ label: t('export.track'), bold: true }, { label: t('gpx.carriedBy'), w: 92 }, { label: t('gpx.distance'), w: 56, align: 'right' }, { label: t('gpx.duration'), w: 52, align: 'right' }, { label: t('gpx.climb'), w: 50, align: 'right' }, { label: t('gpx.descent'), w: 50, align: 'right' }, { label: t('gpx.avgSpeed'), w: 52, align: 'right' }, { label: t('gpx.maxSpeed'), w: 52, align: 'right' }],
-        tracks.map(tk => { const st = trackStats(tk.pts); return [tk.name, tk.riderId ? rname(tk.riderId) : '–', metres(st.dist), st.dur ? fmtDur(st.dur) : '–', Math.round(st.up) + ' m', Math.round(st.down) + ' m', st.dur ? num(st.vavg, 1) + ' km/h' : '–', st.vmax ? num(st.vmax, 1) + ' km/h' : '–']; }));
-    }
-
-    // Every run, as dots on one time axis per rider
     if (opt.analysis) {
+      // Every run on one time axis (with the category comparison next to it)
       const allT = fin.map(x => x.end - x.start), lo = Math.min(...allT), hi = Math.max(...allT), pad = Math.max(500, (hi - lo) * .06), a0 = lo - pad, a1 = hi + pad;
-      const LX = M + 110, RW = CW - 118, X = v => LX + (v - a0) / (a1 - a0) * RW, rowH = 15, ticks = [0, 1, 2, 3, 4].map(i => a0 + (a1 - a0) * (i + .5) / 5);
-      const chartH = riders.length * rowH + 64; if (chartH < BOTTOM - M) room(chartH);   // keep the chart on one page when it fits
-      heading(t('analysis.everyRun'), t('export.everyRunHelp'));
-      let top0 = y;
-      const axis = () => { ticks.forEach(v => { P.line(X(v), top0 - 4, X(v), y, { color: LINE, lw: .4 }); P.text(X(v), y + 10, fmt(v, 1), { size: 7.5, color: MUTED, align: 'center' }); }); y += 16; };
-      riders.forEach(r => {
-        if (y + rowH + 16 > BOTTOM) { axis(); newPage(); top0 = y + 4; }
-        const cy = y + 8, rs = byRider(r), b = bestOf(r), avg = rs.reduce((a, x) => a + x.end - x.start, 0) / rs.length;
-        P.text(LX - 8, cy + 3, rname(r), { size: 8.5, align: 'right', max: 104 });
-        P.line(LX, cy, LX + RW, cy, { color: LINE, lw: .4, dash: [1, 2] });
-        if (rs.length > 1) P.line(X(avg), cy - 5, X(avg), cy + 5, { color: MUTED, lw: 1.5 });
-        rs.forEach(x => { const v = x.end - x.start; if (v === b) P.circle(X(v), cy, 3.6, { fill: ACC }); else P.circle(X(v), cy, 3, { fill: '#FFFFFF', stroke: ACC, lw: 1.2 }); });
-        y += rowH;
-      });
-      axis();
-    }
+      const catsAll = ui.cat ? [] : catsOf(riders);
+      const chart = (x, w) => {
+        const LX = x + 92, RW = w - 96, X = v => LX + (v - a0) / (a1 - a0) * RW, rowH = 11, ticks = [0, 1, 2, 3].map(i => a0 + (a1 - a0) * (i + .5) / 4);
+        heading(t('analysis.everyRun'), x, w, t('export.everyRunShort'));
+        let top0 = y;
+        const axis = () => { ticks.forEach(v => { P.line(X(v), top0, X(v), y, { color: LINE, lw: .35 }); P.text(X(v), y + 8, fmt(v, 1), { size: 6.5, color: MUTED, align: 'center' }); }); y += 11; };
+        if (!single) room(Math.min(riders.length * rowH + 30, 400));
+        riders.forEach(r => {
+          if (!single && y + rowH + 12 > BOTTOM) { axis(); newPage(); top0 = y; }
+          const cy = y + 5.5, rs = byRider(r), b = bestOf(r), avg = rs.reduce((a, q) => a + q.end - q.start, 0) / rs.length;
+          P.text(LX - 6, cy + 2.6, rname(r), { size: 7.5, align: 'right', max: 86 });
+          P.line(LX, cy, LX + RW, cy, { color: LINE, lw: .35, dash: [1, 2] });
+          if (rs.length > 1) P.line(X(avg), cy - 4, X(avg), cy + 4, { color: MUTED, lw: 1.2 });
+          rs.forEach(q => { const v = q.end - q.start; if (v === b) P.circle(X(v), cy, 3, { fill: ACC }); else P.circle(X(v), cy, 2.5, { fill: '#FFFFFF', stroke: ACC, lw: 1 }); });
+          y += rowH;
+        });
+        axis();
+      };
+      const catTable = (x, w) => { heading(t('analysis.byCategory'), x, w); table([{ label: t('cat.label'), bold: true }, { label: t('analysis.ridersCol'), w: 34, align: 'right' }, { label: t('results.best'), w: 44, align: 'right', bold: true }, { label: t('export.typical'), w: 44, align: 'right' }],
+        catsAll.map(c => { const rs = riders.filter(r => rcat(r) === c), b = rs.map(bestOf); return [c, String(rs.length), fmt(b[0]), fmt(med(b))]; }), { x: single ? x : null, w }); };
+      if (catsAll.length > 1) side(CW * .64, chart, catTable); else chart(M, CW);
 
-    if (opt.analysis) {
-      // Gap to the session best, as bars from the best time
-      const gapMax = Math.max(...bests) - top || 1, LXg = M + 110, GW = CW - 110 - 76;
-      heading(t('analysis.gap'));
-      riders.forEach((r, i) => { room(14); const g = bestOf(r) - top, cy = y + 7;
-        P.text(LXg - 8, cy + 3, rname(r), { size: 8.5, align: 'right', max: 104 }); P.line(LXg, y + 1, LXg, y + 13, { color: MUTED, lw: .8 });
-        if (g) P.rect(LXg, y + 3, Math.max(1.5, g / gapMax * GW), 8, { fill: ACC });
-        P.text(M + CW, cy + 3, g ? '+' + sec(g) : t('analysis.leader'), { size: 8.5, bold: !g, align: 'right' }); y += 14; });
-      y += 4;
-      // Progress during the session
-      const multi = riders.filter(r => byRider(r).length > 1);
-      if (multi.length) {
-        heading(t('analysis.progress'), t('export.progressHelp'));
-        table([{ label: t('csv.name'), bold: true }, { label: t('export.runsShort'), w: 40, align: 'right' }, { label: t('export.first'), w: 60, align: 'right' }, { label: t('export.last'), w: 60, align: 'right' }, { label: t('analysis.firstToLast'), w: 70, align: 'right' }, { label: t('analysis.consistency'), w: 64, align: 'right' }],
-          multi.map(r => { const v = byRider(r).map(x => x.end - x.start), d = v[v.length - 1] - v[0], m = v.reduce((a, b) => a + b, 0) / v.length, sd = Math.sqrt(v.reduce((a, b) => a + (b - m) ** 2, 0) / v.length);
-            return [rname(r), String(v.length), fmt(v[0]), fmt(v[v.length - 1]), (d > 0 ? '+' : d < 0 ? '-' : '') + sec(Math.abs(d)), '± ' + sec(sd)]; }));
+      // Per rider: progress during the session, best sectors, ideal time
+      const nS = Math.max(0, ...fin.filter(x => !x.laps.length).map(x => x.splits.length)), multi = riders.some(r => byRider(r).length > 1);
+      if (nS || multi) {
+        const keys = [...Array(nS + 1).keys()].map(i => [i ? 'split' + i : 'start', i < nS ? 'split' + (i + 1) : 'finish']);
+        const secOf = (x, i) => { const b = i ? x.splits[i - 1] : x.start, e = i < nS ? x.splits[i] : x.end; return b != null && e != null && (i < nS ? x.splits.length > i : x.splits.length === nS) ? e - b : null; };
+        const tab = riders.map(r => ({ r, v: byRider(r).map(x => x.end - x.start), sec: nS ? keys.map((_, i) => { const v = byRider(r).filter(x => !x.laps.length).map(x => secOf(x, i)).filter(v => v != null); return v.length ? Math.min(...v) : null; }) : [] }));
+        const colBest = keys.map((_, i) => Math.min(...tab.map(x => x.sec[i]).filter(v => v != null)));
+        const cols = [{ label: t('csv.name'), bold: true }];
+        if (multi) cols.push({ label: t('analysis.firstToLast'), w: 58, align: 'right' }, { label: t('analysis.consistency'), w: 52, align: 'right' });
+        if (nS) cols.push(...keys.map(([a, b]) => ({ label: gateShort(a) + '–' + gateShort(b) + (C && C.seg[segKey(a, b)] ? ' ' + metres(C.seg[segKey(a, b)]) : ''), w: Math.min(62, (CW - 260) / keys.length), align: 'right' })), { label: t('analysis.ideal'), w: 46, align: 'right' }, { label: t('analysis.gain'), w: 44, align: 'right' });
+        heading(nS ? t('export.perRider') : t('analysis.progress'), null, null, nS ? t('export.perRiderHelp') : t('export.progressShort'));
+        table(cols, tab.map(({ r, v, sec: sv }) => {
+          const row = [rname(r)];
+          if (multi) { if (v.length > 1) { const d = v[v.length - 1] - v[0], m = v.reduce((a, b) => a + b, 0) / v.length; row.push((d > 0 ? '+' : d < 0 ? '-' : '') + sec(Math.abs(d)), '± ' + sec(Math.sqrt(v.reduce((a, b) => a + (b - m) ** 2, 0) / v.length))); } else row.push('–', '–'); }
+          if (nS) { const ideal = sv.every(x => x != null) ? sv.reduce((a, b) => a + b, 0) : null, g = ideal != null ? bestOf(r) - ideal : null; row.push(...sv.map(x => x != null ? fmt(x) : '–'), ideal != null ? fmt(ideal) : '–', g > 0 ? '-' + sec(g) : g === 0 ? '0' : '–'); }
+          return row;
+        }), { boldCell: (i, j) => { const k = j - 1 - (multi ? 2 : 0); return nS && k >= 0 && k < keys.length && tab[i].sec[k] === colBest[k]; } });
       }
+
       // Laps (circuit)
       const lapR = riders.filter(r => byRider(r).some(x => x.laps.length));
       if (lapR.length) {
         heading(t('analysis.laps'));
-        table([{ label: t('csv.name'), bold: true }, { label: t('export.lapsN'), w: 50, align: 'right' }, { label: t('analysis.bestLap'), w: 64, align: 'right', bold: true }, { label: t('results.avg'), w: 64, align: 'right' }, ...(C && C.lap ? [{ label: 'km/h', w: 44, align: 'right' }] : [])],
+        table([{ label: t('csv.name'), bold: true }, { label: t('export.lapsN'), w: 44, align: 'right' }, { label: t('analysis.bestLap'), w: 58, align: 'right', bold: true }, { label: t('results.avg'), w: 58, align: 'right' }, ...(C && C.lap ? [{ label: 'km/h', w: 40, align: 'right' }] : [])],
           lapR.map(r => { const L2 = byRider(r).flatMap(x => [...x.laps, x.end].map((v, j, arr) => v - (j ? arr[j - 1] : x.start))), b = Math.min(...L2); return [rname(r), String(L2.length), fmt(b), fmt(L2.reduce((a, c) => a + c, 0) / L2.length), ...(C && C.lap ? [num(kmh(C.lap, b), 1)] : [])]; }));
       }
     }
 
-    // Sectors
-    const nS = Math.max(0, ...fin.filter(x => !x.laps.length).map(x => x.splits.length));
-    if (opt.analysis && nS) {
-      const keys = [...Array(nS + 1).keys()].map(i => [i ? 'split' + i : 'start', i < nS ? 'split' + (i + 1) : 'finish']);
-      const secOf = (x, i) => { const b = i ? x.splits[i - 1] : x.start, e = i < nS ? x.splits[i] : x.end; return b != null && e != null && (i < nS ? x.splits.length > i : x.splits.length === nS) ? e - b : null; };
-      const tab = riders.map(r => ({ r, sec: keys.map((_, i) => { const v = byRider(r).filter(x => !x.laps.length).map(x => secOf(x, i)).filter(v => v != null); return v.length ? Math.min(...v) : null; }) }));
-      const colBest = keys.map((_, i) => Math.min(...tab.map(x => x.sec[i]).filter(v => v != null)));
-      const sw = Math.min(64, (CW - 120 - 110) / keys.length);
-      const cols = [{ label: t('csv.name'), bold: true }, ...keys.map(([a, b]) => ({ label: gateShort(a) + ' – ' + gateShort(b) + (C && C.seg[segKey(a, b)] ? ' (' + metres(C.seg[segKey(a, b)]) + ')' : ''), w: sw, align: 'right' })), { label: t('analysis.ideal'), w: 56, align: 'right' }, { label: t('analysis.gain'), w: 54, align: 'right' }];
-      const rows = tab.map(({ r, sec: v }) => { const ideal = v.every(x => x != null) ? v.reduce((a, b) => a + b, 0) : null, g = ideal != null ? bestOf(r) - ideal : null; return [rname(r), ...v.map(x => x != null ? fmt(x) : '–'), ideal != null ? fmt(ideal) : '–', g > 0 ? '-' + sec(g) : g === 0 ? '0' : '–']; });
-      heading(t('analysis.sectors'), t('export.sectorsHelp'));
-      table(cols, rows, { boldCell: (i, j) => j >= 1 && j <= keys.length && tab[i].sec[j - 1] === colBest[j - 1] });
-    }
-
-    // Categories
-    const catsAll = ui.cat ? [] : catsOf(riders);
-    if (opt.analysis && catsAll.length > 1) {
-      heading(t('analysis.byCategory'));
-      table([{ label: t('cat.label'), bold: true }, { label: t('analysis.ridersCol'), w: 60, align: 'right' }, { label: t('results.best'), w: 60, align: 'right', bold: true }, { label: t('export.bestBy'), w: 150 }, { label: t('analysis.medianBest'), w: 90, align: 'right' }],
-        catsAll.map(c => { const rs = riders.filter(r => rcat(r) === c), b = rs.map(bestOf); return [c, String(rs.length), fmt(b[0]), rname(rs[0]), fmt(med(b))]; }));
-    }
-
-    // All runs, in order
+    // Every run, in order
     if (opt.runs) {
-      heading(t('export.allRuns'), t('export.allRunsHelp'));
+      heading(t('export.allRuns'), null, null, t('export.allRunsHelp'));
       riders.forEach(r => {
-        const rs = byRider(r), b = bestOf(r); room(28); P.text(M, y + 10, rname(r) + (rcat(r) && !ui.cat ? '  ·  ' + rcat(r) : ''), { size: 9, bold: true, max: CW }); y += 14;
-        let x = M + 10;
+        const rs = byRider(r), b = bestOf(r); room(12);
+        let x = M + P.text(M, y + 8, rname(r), { size: 7.5, bold: true, max: 110 }) + 8;
         rs.forEach((v, k) => {
-          const tok = (k + 1) + '. ' + fmt(v.end - v.start) + (v.splits.length ? ' (' + v.splits.map(sp => fmt(sp - v.start)).join(', ') + ')' : v.laps.length ? ' (' + t('results.lapsCount', { n: v.laps.length + 1 }) + ')' : ''), bold = v.end - v.start === b, w = P.width(tok, 8.5, bold) + 14;
-          if (x + w > M + CW) { x = M + 10; y += 12; room(12); }
-          P.text(x, y + 9, tok, { size: 8.5, bold, color: bold ? ACC : INK }); x += w;
+          const tok = (k + 1) + '. ' + fmt(v.end - v.start) + (v.splits.length ? ' (' + v.splits.map(sp => fmt(sp - v.start)).join(', ') + ')' : v.laps.length ? ' (' + t('results.lapsCount', { n: v.laps.length + 1 }) + ')' : ''), bold = v.end - v.start === b, w = P.width(tok, 7.5, bold) + 10;
+          if (x + w > M + CW) { x = M + 118; y += 10; room(10); }
+          P.text(x, y + 8, tok, { size: 7.5, bold, color: bold ? ACC : INK }); x += w;
         });
-        y += 18;
+        y += 11;
       });
     }
-    room(24); y += 8;
-    P.text(M, y + 8, t('analysis.basedOn', { runs: nRuns(fin.length) }) + ' ' + (C ? t('analysis.speedFrom') : ''), { size: 7.5, color: MUTED, max: CW });
-  }
+    y += 4; P.text(M, y + 7, t('analysis.basedOn', { runs: nRuns(fin.length) }) + (C ? ' ' + t('analysis.speedFrom') : ''), { size: 6.5, color: MUTED, max: CW }); y += 10;
+    return y;
+  };
+
+  // One page if the content still reads well when shrunk to A4, otherwise several pages.
+  let P = makePdf(title); P.H = 6000;
+  const end = draw(P, true), avail = P.A4 - FOOT - 8 - M, k = Math.min(1, avail / (end - M));
+  if (k >= .72) {
+    const CW = P.W - 2 * M, dx = M * (1 - k) + CW * (1 - k) / 2, dy = P.A4 - M - k * (P.H - M);
+    P.wrap(0, `q ${k.toFixed(4)} 0 0 ${k.toFixed(4)} ${dx.toFixed(2)} ${dy.toFixed(2)} cm`, 'Q'); P.H = P.A4;
+  } else { P = makePdf(title); draw(P, false); }
   // Footer on every page
-  const stamp = new Date().toLocaleString(LOC, { dateStyle: 'medium', timeStyle: 'short' });
-  P.pages.forEach((_, i) => { P.goto(i); P.line(M, P.H - 34, M + CW, P.H - 34, { color: LINE, lw: .5 }); P.text(M, P.H - 22, [SET.clubName, SET.appName].filter(Boolean).join(' · '), { size: 7.5, color: MUTED }); P.text(P.W / 2, P.H - 22, t('export.generated', { date: stamp }), { size: 7.5, color: MUTED, align: 'center' }); P.text(M + CW, P.H - 22, t('export.page', { i: i + 1, n: P.pages.length }), { size: 7.5, color: MUTED, align: 'right' }); });
+  const stamp = new Date().toLocaleString(LOC, { dateStyle: 'medium', timeStyle: 'short' }), CW = P.W - 2 * M;
+  P.pages.forEach((_, i) => { P.goto(i); P.line(M, P.A4 - 30, M + CW, P.A4 - 30, { color: LINE, lw: .5 }); P.text(M, P.A4 - 19, [SET.clubName, SET.appName].filter(Boolean).join(' · '), { size: 7, color: MUTED }); P.text(P.W / 2, P.A4 - 19, t('export.generated', { date: stamp }), { size: 7, color: MUTED, align: 'center' }); if (P.pages.length > 1) P.text(M + CW, P.A4 - 19, t('export.page', { i: i + 1, n: P.pages.length }), { size: 7, color: MUTED, align: 'right' }); });
   const slug = (s.date + '-' + s.name + (ui.cat ? '-' + ui.cat : '')).normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60);
-  return { bytes: P.build(), name: slug + '.pdf' };
+  return { bytes: P.build(), name: slug + '.pdf', pages: P.pages.length };
 }
 
 /* Export tab. The PDF is prepared as soon as the tab opens and again after each change, so that
@@ -972,7 +979,7 @@ function exportView(s) {
     <div class="checks"><label class="check"><input type="checkbox" checked disabled> ${t('export.ranking')}</label>${box('analysis', t('export.optAnalysis'), true)}${box('map', t('export.optMap'), hasTracks)}${box('track', t('export.optTrack'), hasTracks)}${box('runs', t('export.allRuns'), true)}</div>
     ${hasTracks ? '' : `<div class="note">${t('export.noTrack')}</div>`}
     <div class="tools">${canShare ? `<button class="primary" data-act="pdfshare" ${ready ? '' : 'disabled'}>${ready ? t('export.share') : t('export.preparing')}</button>` : ''}<button class="${canShare ? 'ghost' : 'primary'}" data-act="pdfdown" ${ready ? '' : 'disabled'}>${ready ? t('export.download') : t('export.preparing')}</button></div>
-    ${ready ? `<div class="note">${esc(ui.pdf.name)} · ${num(ui.pdf.bytes.length / 1024, 0)} ko</div>` : ''}
+    ${ready ? `<div class="note">${esc(ui.pdf.name)} · ${t('export.pages', { n: ui.pdf.pages })} · ${num(ui.pdf.bytes.length / 1024, 0)} ko</div>` : ''}
     <div class="note">${t('export.privacy')}</div>
     <h2>${t('export.data')}</h2><div class="tools"><button class="ghost" data-act="csv">${t('results.exportCsv')}</button><button class="ghost" data-act="copy">${t('results.copy')}</button></div>`;
 }

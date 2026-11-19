@@ -228,12 +228,19 @@ self.CHRONO_LANGS.en = {
   'export.noTrack': 'Map and GPS data become available once a .fit or .gpx track is imported in the GPS tab.',
   'export.map': 'Map of the course',
   'export.mapNoCourse': 'Start, split and finish points appear once the rider who carried the device is set in the GPS tab.',
-  'export.mapLegend': 'S = start, I = split, F = finish; blue line = track used to find them',
+  'export.mapLegend': 'S start · I split · F finish',
   'export.trackData': 'GPS recordings',
   'export.trackDataHelp': 'Whole recording of each device, including riding between runs.',
   'export.track': 'File',
   'export.progressHelp': 'First and last run of the session, change between them, and how much times vary around the average.',
   'export.first': 'First',
   'export.last': 'Last',
-  'export.lapsN': 'Laps'
+  'export.lapsN': 'Laps',
+  'export.course': 'Course',
+  'export.typical': 'Typical',
+  'export.everyRunShort': 'filled dot = best, bar = average',
+  'export.perRider': 'Per rider',
+  'export.perRiderHelp': 'bold = fastest sector; ideal = sum of best sectors',
+  'export.progressShort': 'first → last run, variation around the average',
+  'export.pages': { one: '{n} page', other: '{n} pages' }
 };

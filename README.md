@@ -152,12 +152,12 @@ When riders of a session have categories:
 
 ## Sharing results as a PDF
 
-The **Export** tab of a session creates a one- or several-page A4 PDF to send to the riders (or their parents) after training. It always contains the club logo and name, the session, a summary and the **ranking** (best, average, slowest time, gap, speed when a GPS track was imported). Tick what else to include:
+The **Export** tab of a session creates an A4 PDF, condensed onto a single page (a very large group, where text would become too small, goes over several pages instead) to send to the riders (or their parents) after training. It always contains the club logo and name, the session, a summary and the **ranking** (best, average, slowest time, gap, speed when a GPS track was imported). Tick what else to include:
 
-- **Analysis statistics**: every run on one time axis, gap to the best, progress during the session, sectors with the ideal time, laps, comparison by category.
-- **Map of the track**, with the course length, sector lengths and the start, split and finish points, on an OpenStreetMap background (plain background without network).
-- **Full GPS recording data**: for each imported `.fit` or `.gpx` file, total distance, duration, climb, descent, average and maximum speed of the whole recording.
-- **Run details**: every run of every rider, in order, with splits. Pick a category first to make one PDF per age class.
+- **Analysis statistics**: every run on one time axis, comparison by category, and per rider the progress during the session, best sectors and ideal time; laps on a circuit.
+- **Map of the track** (about a quarter of the page) with the start, split and finish points on an OpenStreetMap background (plain background without network), and the course and sector lengths next to it.
+- **GPS recordings**: for each imported `.fit` or `.gpx` file, total distance, duration and climb of the whole recording.
+- **Run details** (off by default, takes more room): every run of every rider, in order, with splits. Pick a category first to make one PDF per age class.
 
 **Share the PDF** opens the phone's share menu (WhatsApp, email, Messages…); **Download the PDF** saves it. The PDF is made on the phone itself, so this works without network too. It contains the riders' names and times: share it only with the group concerned.
 

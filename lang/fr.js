@@ -222,12 +222,19 @@ self.CHRONO_LANGS.fr = {
   'export.noTrack': 'La carte et les données GPS sont disponibles une fois un tracé .fit ou .gpx importé dans l\'onglet GPS.',
   'export.map': 'Carte du parcours',
   'export.mapNoCourse': 'Le départ, les inters et l\'arrivée apparaissent quand le jeune qui portait l\'appareil est indiqué dans l\'onglet GPS.',
-  'export.mapLegend': 'D = départ, I = inter, A = arrivée ; trait bleu = tracé ayant servi à les trouver',
+  'export.mapLegend': 'D départ · I inter · A arrivée',
   'export.trackData': 'Enregistrements GPS',
   'export.trackDataHelp': 'Enregistrement complet de chaque appareil, y compris les trajets entre les passages.',
   'export.track': 'Fichier',
   'export.progressHelp': 'Premier et dernier passage de la séance, évolution entre les deux, et dispersion autour de la moyenne.',
   'export.first': 'Premier',
   'export.last': 'Dernier',
-  'export.lapsN': 'Tours'
+  'export.lapsN': 'Tours',
+  'export.course': 'Parcours',
+  'export.typical': 'Typique',
+  'export.everyRunShort': 'point plein = meilleur, trait = moyenne',
+  'export.perRider': 'Par jeune',
+  'export.perRiderHelp': 'gras = secteur le plus rapide ; idéal = somme des meilleurs secteurs',
+  'export.progressShort': '1er → dernier passage, dispersion autour de la moyenne',
+  'export.pages': { one: '{n} page', other: '{n} pages' }
 };
