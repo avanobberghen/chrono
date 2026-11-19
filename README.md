@@ -140,6 +140,14 @@ The **Analysis** tab shows, from the finished runs of the session:
 
 ---
 
+## Frozen sessions and corrections
+
+From the day after its date, a session is **frozen**: the Timing tab shows the times but no button, no start can be given and runs cannot be deleted. This protects the results once they have been shared.
+
+An **admin** can still correct them: in the **Results** tab, tap **Edit**. In this correction mode each run has **Edit** (type the right time, e.g. `1:23.45`, or mark it as DNF) and **Delete**, and **Add a run** records a forgotten run with its time. Corrections are recorded like any tap, so they reach the other phones and can be undone. Tap **Finish corrections** when done; leaving the session also ends the mode.
+
+The rule is applied by the app (coaches' phones refuse), not by the database. Times tapped on the day of the session but sent later because of a weak network are still accepted. An admin can change a session's date; coaches cannot once it is frozen.
+
 ## Abandons (DNF)
 
 At the **Finish** and **Start/Finish** posts, each rider on course has a **DNF** button (shown as *ABD* in French) next to Stop. At Start/Finish it is also offered with Lap and Finish after a Stop. The run is closed without a time: it does not count in times, averages or rankings, but appears as "DNF" in the results, the `.csv` export and the PDF (a DNF column in the ranking; riders with only DNFs are listed at the end). The **Undo** banner and the **Delete** button in Results work as for any run. No database change is needed.

@@ -247,5 +247,21 @@ self.CHRONO_LANGS.fr = {
   'chrono.dnfAria': 'Abandon de {name}',
   'chrono.dnfCount': '{n} ABD',
   'toast.dnf': 'Abandon : {name}',
-  'results.dnfAfter': 'abandon après {time}'
+  'results.dnfAfter': 'abandon après {time}',
+  'lock.banner': 'Cette session ({date}) est terminée : les résultats sont figés et aucun départ ne peut plus être donné.',
+  'lock.coachHint': 'Seul un administrateur peut les corriger, depuis l\'onglet Résultats.',
+  'lock.adminHint': 'Pour les corriger, utilisez Éditer dans l\'onglet Résultats.',
+  'lock.frozen': 'Résultats figés : la session est terminée.',
+  'lock.editing': 'Mode correction : chaque modification est enregistrée et partagée avec les autres encadrants.',
+  'lock.edit': 'Éditer',
+  'lock.stopEdit': 'Terminer les corrections',
+  'lock.addRun': 'Ajouter un passage',
+  'lock.modify': 'Modifier',
+  'lock.editTitle': 'Passage {i} de {name}',
+  'lock.time': 'Temps (min:s.centièmes, ex. 1:23.45)',
+  'lock.toDnf': 'Marquer comme abandon',
+  'lock.invalid': 'Temps invalide : écrivez-le comme 1:23.45',
+  'lock.fixed': 'Temps corrigé : {name} {time}',
+  'lock.added': 'Passage ajouté : {name} {time}',
+  'lock.blocked': 'Session terminée : les résultats sont figés. Un administrateur peut les corriger depuis l\'onglet Résultats.'
 };

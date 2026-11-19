@@ -123,6 +123,12 @@ function runsOf(sid) {
 }
 const active = r => R.find(x => x.riderId === r && x.end == null && x.dnf == null);
 const dnfs = r => R.filter(x => x.riderId === r && x.dnf != null).length;
+// A session is frozen from the day after its date: no more timing, results can only be corrected
+// by an admin who switches on "Edit" in the Results tab (corrections are logged like any tap).
+const locked = s => !!s && s.date < today();
+const editing = s => locked(s) && isAdmin() && ui.editSid === s.id;
+const canChange = s => !locked(s) || editing(s);
+function guard() { const s = cur(); if (canChange(s)) return true; toast(t('lock.blocked')); return false; }
 const times = r => R.filter(x => x.riderId === r && x.end != null).map(x => x.end - x.start);
 const best = r => { const ts = times(r); return ts.length ? Math.min(...ts) : null; };
 
@@ -335,7 +341,7 @@ const V = {
       <button class="net ${c}" id="net" data-act="sync"><i></i>${esc(lab)}</button></header>
     <header class="bar" style="padding-top:0"><h1>${esc(s.name)}<small>${fDate(s.date)} · ${nRiders(s.rider_ids.length)}${s.archived ? ' · ' + t('session.archived') : ''}</small></h1></header>
     <div class="tabs" role="tablist">${T.map(([k, l]) => `<button role="tab" aria-selected="${ui.tab === k}" data-act="tab" data-id="${k}">${l}</button>`).join('')}</div>
-    ${ui.tab === 'chrono' ? `<div class="label">${t('session.myPost')}</div><div class="seg">${P.map(([k, l]) => `<button aria-pressed="${ui.poste === k}" data-act="poste" data-id="${k}">${l}</button>`).join('')}</div>${chrono(s)}` : ui.tab === 'results' ? results(s) : ui.tab === 'analysis' ? analysis(s) : ui.tab === 'export' ? exportView(s) : gpxView(s)}`;
+    ${ui.tab === 'chrono' ? `${locked(s) ? '' : `<div class="label">${t('session.myPost')}</div><div class="seg">${P.map(([k, l]) => `<button aria-pressed="${ui.poste === k}" data-act="poste" data-id="${k}">${l}</button>`).join('')}</div>`}${chrono(s)}` : ui.tab === 'results' ? results(s) : ui.tab === 'analysis' ? analysis(s) : ui.tab === 'export' ? exportView(s) : gpxView(s)}`;
   },
   admin() {
     const y = ui.adminTab === 'youth', riders = db.riders.filter(r => r.active !== false).sort((a, b) => a.name.localeCompare(b.name, LOC));
@@ -360,7 +366,7 @@ function footer() {
 }
 
 function chrono(s) {
-  const p = ui.poste, canStart = p === 'start' || p === 'both', pend = db.pend[s.id] || {};
+  const frozen = locked(s), p = ui.poste, canStart = !frozen && (p === 'start' || p === 'both'), pend = db.pend[s.id] || {};
   const cp = r => { const a = active(r); return a.splits.length + a.laps.length; }, last = r => { const a = active(r); return Math.max(a.start, ...a.splits, ...a.laps); };
   const running = s.rider_ids.filter(r => active(r)).sort((a, b) => cp(b) - cp(a) || last(a) - last(b));
   let idle = s.rider_ids.filter(r => !active(r));
@@ -386,27 +392,31 @@ function chrono(s) {
       if (canStart) btn = ui.multi ? `<button class="act pick" aria-pressed="${ui.sel.includes(r)}" data-act="pick" data-id="${r}" aria-label="${esc(t('chrono.select', { name: rname(r) }))}">${ui.sel.includes(r) ? '✓' : '+'}</button>` : `<button class="act go" data-act="start" data-id="${r}">${t('btn.start')}</button>`;
       else btn = `<button class="act late" data-act="${p === 'inter' ? 'split' : 'stop'}" data-id="${r}">${t(p === 'inter' ? 'btn.split' : 'btn.stop')}</button>`;
     }
+    if (frozen) btn = '';
     const pos = a ? '●' : (ranked.indexOf(r) >= 0 ? ranked.indexOf(r) + 1 : '–');
     return `<li class="row ${a ? 'run' : ''}"><span class="pos">${pos}</span><div class="who"><b>${esc(rname(r))}</b><small>${sub}</small></div>${time || '<span></span>'}${btn || '<span></span>'}</li>`;
   };
   const order = p === 'start' ? [...idle, ...running] : [...running, ...idle];
-  const wait = !canStart && !running.length && s.rider_ids.length ? `<div class="hint">${t('chrono.waitHint')}</div>` : '';
+  const lockMsg = frozen ? `<div class="hint lock">${t('lock.banner', { date: fDate(s.date) })} ${t(isAdmin() ? 'lock.adminHint' : 'lock.coachHint')}</div>` : '';
+  const wait = !frozen && !canStart && !running.length && s.rider_ids.length ? `<div class="hint">${t('chrono.waitHint')}</div>` : '';
   const n = ui.sel.length, multi = canStart && idle.length ? `<div class="tools"><button class="ghost" data-act="multi">${t(ui.multi ? 'chrono.leaveGroup' : 'chrono.groupStart')}</button>${ui.multi ? `<button class="ghost" data-act="pickall">${t('chrono.selectAll')}</button>` : ''}</div>` : '';
   const bar = ui.multi && canStart ? `<div class="gobar"><button class="act go" data-act="startsel" ${n ? '' : 'disabled'}>${n ? t('chrono.startN', { riders: nRiders(n) }) : t('chrono.selectRiders')}</button></div>` : '';
-  return `${wait}${multi}<ul class="list tight">${order.map(row).join('') || `<li class="hint">${t('chrono.noRiders')}</li>`}</ul>
+  return `${lockMsg}${wait}${multi}<ul class="list tight">${order.map(row).join('') || `<li class="hint">${t('chrono.noRiders')}</li>`}</ul>
   <div class="tools"><button class="ghost" data-act="people">${t('chrono.peopleBtn')}</button><button class="ghost" data-act="archive">${t(s.archived ? 'chrono.unarchive' : 'chrono.archive')}</button></div>${bar}`;
 }
 
 function results(s) {
   const ids = [...new Set([...s.rider_ids, ...R.map(r => r.riderId)])].filter(r => (times(r).length || dnfs(r)) && inCat(r)).sort((a, b) => (best(a) ?? 1e15) - (best(b) ?? 1e15)), chips = catChips(s);
-  if (!ids.length) return `${chips}<div class="hint">${t('results.none')}</div>`;
-  return `${chips}<ul class="list">${ids.map((r, i) => {
+  const ed = canChange(s), lockBar = locked(s) ? (isAdmin() ? `<div class="hint lock ${editing(s) ? 'on' : ''}">${t(editing(s) ? 'lock.editing' : 'lock.frozen')}<div class="tools"><button class="${editing(s) ? 'primary' : 'ghost'}" data-act="editres">${t(editing(s) ? 'lock.stopEdit' : 'lock.edit')}</button>${editing(s) ? `<button class="ghost" data-act="runadd">${t('lock.addRun')}</button>` : ''}</div></div>` : `<div class="hint lock">${t('lock.frozen')}</div>`) : '';
+  if (!ids.length) return `${chips}${lockBar}<div class="hint">${t('results.none')}</div>`;
+  return `${chips}${lockBar}<ul class="list">${ids.map((r, i) => {
     const ts = times(r), avg = ts.length ? ts.reduce((a, b) => a + b, 0) / ts.length : null, runs = R.filter(x => x.riderId === r && (x.end != null || x.dnf != null)), nd = dnfs(r);
     return `<li><details class="res"><summary><span class="pos">${ts.length ? i + 1 : '–'}</span><div class="who"><b>${esc(rname(r))}</b><small>${[nRuns(ts.length), nd ? t('chrono.dnfCount', { n: nd }) : '', rcat(r) ? esc(rcat(r)) : '', t('results.details')].filter(Boolean).join(' · ')}</small></div>
       ${ts.length ? `<div class="stats"><span>${t('results.best')}</span><span>${t('results.avg')}</span><span>${t('results.max')}</span><b class="best">${fmt(Math.min(...ts))}</b><b>${fmt(avg)}</b><b>${fmt(Math.max(...ts))}</b></div>` : `<b class="dnftag">${t('btn.dnf')}</b>`}</summary>
       <div class="runs">${runs.map((x, k) => { const ex = [...x.splits.map((v, j) => t('results.splitN', { i: j + 1, time: fmt(v - x.start) })), ...x.laps.map((v, j) => t('results.lapN', { i: j + 1, time: fmt(v - (x.laps[j - 1] ?? x.start)) }))];
-        if (x.dnf != null) return `<div><span>${k + 1}.</span><b class="dnftag">${t('btn.dnf')}</b><em>${t('results.dnfAfter', { time: fmt(x.dnf - x.start) })}${ex.length ? ' · ' + ex.join(' · ') : ''}</em><button data-act="delrun" data-id="${x.id}">${t('results.delete')}</button></div>`;
-        return `<div><span>${k + 1}.</span><b>${fmt(x.end - x.start)}</b><em>${ex.join(' · ')}</em><button data-act="delrun" data-id="${x.id}">${t('results.delete')}</button></div>`; }).join('')}</div></details></li>`; }).join('')}</ul>
+        const tools = ed ? `${editing(s) ? `<button data-act="runedit" data-id="${x.id}" class="mod">${t('lock.modify')}</button>` : ''}<button data-act="delrun" data-id="${x.id}">${t('results.delete')}</button>` : '';
+        if (x.dnf != null) return `<div><span>${k + 1}.</span><b class="dnftag">${t('btn.dnf')}</b><em>${t('results.dnfAfter', { time: fmt(x.dnf - x.start) })}${ex.length ? ' · ' + ex.join(' · ') : ''}</em>${tools}</div>`;
+        return `<div><span>${k + 1}.</span><b>${fmt(x.end - x.start)}</b><em>${ex.join(' · ')}</em>${tools}</div>`; }).join('')}</div></details></li>`; }).join('')}</ul>
   <div class="tools"><button class="ghost" data-act="csv">${t('results.exportCsv')}</button><button class="ghost" data-act="copy">${t('results.copy')}</button></div>`;
 }
 
@@ -611,7 +621,7 @@ function gpxView(s) {
     const rows = mine.map((x, i) => { const sl = timed(tk.pts) ? tk.pts.filter(p => p[3] && p[3] >= x.start && p[3] <= x.end) : []; if (sl.length < 2) return `<div><span>${i + 1}.</span><b>${fmt(x.end - x.start)}</b><em>${t('gpx.noPoints')}</em></div>`; const ss = trackStats(sl); return `<div><span>${i + 1}.</span><b>${fmt(x.end - x.start)}</b><em>${t('gpx.runLine', { m: Math.round(ss.dist), avg: num(kmh(ss.dist, x.end - x.start), 1), max: num(ss.vmax, 1) })}</em></div>`; }).join('');
     const det = detectRuns(tk, C);
     const detRows = det.map((r, i) => { const id = tk.id + ':' + i; ui.det[id] = { r, rider: tk.riderId }; const d = runDist(r, C);
-      return `<div><span>${new Date(r.start).toLocaleTimeString(LOC, { hour: '2-digit', minute: '2-digit' })}</span><b>${fmt(r.end - r.start)}</b><em>${[r.laps.length ? t('results.lapsCount', { n: r.laps.length + 1 }) : '', d ? num(kmh(d, r.end - r.start), 1) + ' km/h' : ''].filter(Boolean).join(' · ')}</em>${tk.riderId ? `<button data-act="gpsadd" data-id="${esc(id)}">${t('gpx.addRun')}</button>` : ''}</div>`; }).join('');
+      return `<div><span>${new Date(r.start).toLocaleTimeString(LOC, { hour: '2-digit', minute: '2-digit' })}</span><b>${fmt(r.end - r.start)}</b><em>${[r.laps.length ? t('results.lapsCount', { n: r.laps.length + 1 }) : '', d ? num(kmh(d, r.end - r.start), 1) + ' km/h' : ''].filter(Boolean).join(' · ')}</em>${tk.riderId && canChange(s) ? `<button data-act="gpsadd" data-id="${esc(id)}">${t('gpx.addRun')}</button>` : ''}</div>`; }).join('');
     return `<details class="res trk" ${ti === 0 ? 'open' : ''}><summary class="trk-head"><div class="who"><b>${esc(tk.name)}</b><small>${tk.riderId ? esc(rname(tk.riderId)) : t('gpx.riderNotSet')} · ${metres(st.dist)}</small></div></summary>
       <div class="trk-body">
       <div class="field">${t('gpx.carriedBy')}<select data-track="${esc(tk.id)}"><option value="">${t('gpx.notSpecified')}</option>${s.rider_ids.map(r => `<option value="${r}" ${tk.riderId === r ? 'selected' : ''}>${esc(rname(r))}</option>`).join('')}</select></div>
@@ -1094,6 +1104,15 @@ function sheet() {
     <div class="field">${t('sheet.name')}<input id="n-name" placeholder="${t('sheet.namePlaceholder')}" autocomplete="off"></div>
     <div class="field">${t('sheet.date')}<input id="n-date" type="date" value="${today()}"></div>
     <button class="primary" type="submit">${t('sheet.createAndPick')}</button><button type="button" class="ghost" data-act="close">${t('common.cancel')}</button></form></div>`;
+  if (ui.sheet === 'runedit') { const x = R.find(q => q.id === ui.runId); if (!x) return ''; const k = R.filter(q => q.riderId === x.riderId && q.start <= x.start).length;
+    return `<div class="veil"><form class="sheet" data-form="runedit"><h3>${t('lock.editTitle', { i: k, name: esc(rname(x.riderId)) })}</h3>
+    <div class="field">${t('lock.time')}<input id="re-time" inputmode="decimal" autocomplete="off" value="${x.end != null ? fmt(x.end - x.start) : ''}" placeholder="1:23.45"></div>
+    <button class="primary" type="submit">${t('common.save')}</button>${x.dnf == null ? `<button type="button" class="ghost danger" data-act="runtodnf">${t('lock.toDnf')}</button>` : ''}<button type="button" class="ghost" data-act="close">${t('common.cancel')}</button></form></div>`; }
+  if (ui.sheet === 'runadd') { const s = cur(); if (!s) return '';
+    return `<div class="veil"><form class="sheet" data-form="runadd"><h3>${t('lock.addRun')}</h3>
+    <div class="field">${t('export.rider')}<select id="ra-rider">${s.rider_ids.map(r => `<option value="${r}">${esc(rname(r))}</option>`).join('')}</select></div>
+    <div class="field">${t('lock.time')}<input id="ra-time" inputmode="decimal" autocomplete="off" placeholder="1:23.45"></div>
+    <button class="primary" type="submit">${t('common.add')}</button><button type="button" class="ghost" data-act="close">${t('common.cancel')}</button></form></div>`; }
   if (ui.sheet === 'rider') { const r = db.riders.find(x => x.id === ui.edit); if (!r) return '';
     return `<div class="veil"><form class="sheet" data-form="rider"><h3>${t('admin.editRider')}</h3>
     <div class="field">${t('admin.fullName')}<input id="r-name" value="${esc(r.name)}" required autocomplete="off"></div>
@@ -1108,7 +1127,7 @@ function sheet() {
     <div class="field">${t('sheet.addRider')}<input id="q" placeholder="${t('sheet.typeName')}" autocomplete="off"></div><div class="sugg" id="sugg">${sugg('')}</div>
     <ul class="list">${s.rider_ids.map(r => `<li class="line"><span class="grow">${esc(rname(r))}</span><button data-act="rmrider" data-id="${r}">${t('common.remove')}</button></li>`).join('')}</ul>
     <div class="field">${t('sheet.name')}<input id="e-name" value="${esc(s.name)}" autocomplete="off"></div>
-    <div class="field">${t('sheet.date')}<input id="e-date" type="date" value="${esc(s.date)}"></div>
+    <div class="field">${t('sheet.date')}<input id="e-date" type="date" value="${esc(s.date)}" ${locked(s) && !isAdmin() ? 'disabled' : ''}></div>
     <button class="primary" data-act="close">${t('common.done')}</button>
     ${isAdmin() ? `<button class="ghost danger" data-act="delsession">${t(ui.confirmDel ? 'sheet.confirmDelete' : 'sheet.deleteSession')}</button>` : ''}</div></div>`; }
   return '';
@@ -1174,7 +1193,7 @@ function initUpdates() {
 
 /* ---------- actions ---------- */
 const A = {
-  home() { ui.view = 'home'; ui.sheet = null; ui.multi = false; ui.sel = []; ui.sid = null; subscribeSession(null); if (wake) { try { wake.release(); } catch (e) {} wake = null; } },
+  home() { ui.view = 'home'; ui.editSid = null; ui.sheet = null; ui.multi = false; ui.sel = []; ui.sid = null; subscribeSession(null); if (wake) { try { wake.release(); } catch (e) {} wake = null; } },
   open(d) { ui.view = 'session'; ui.sid = d.id; ui.tab = 'chrono'; ui.multi = false; ui.sel = []; subscribeSession(d.id); pullEvents(d.id); keepAwake(); },
   admin() { ui.view = 'admin'; pullCoaches().then(() => render(true)); }, atab(d) { ui.adminTab = d.id; },
   lmode(d) { ui.loginMode = d.id; },
@@ -1199,22 +1218,22 @@ const A = {
   multi() { ui.multi = !ui.multi; ui.sel = []; },
   pick(d) { const i = ui.sel.indexOf(d.id); if (i < 0) ui.sel.push(d.id); else ui.sel.splice(i, 1); },
   pickall() { ui.sel = cur().rider_ids.filter(r => !active(r)); },
-  start(d) { if (active(d.id)) return; const e = emit('start', d.id, tapTs()); ui.undo = [e]; buzz(); toast(t('toast.started', { name: rname(d.id) }), undoBtn()); },
-  startsel() { const ts = tapTs(), ids = ui.sel.filter(r => cur().rider_ids.includes(r) && !active(r)); if (!ids.length) return; ui.undo = ids.map(r => emit('start', r, ts)); ui.sel = []; ui.multi = false; buzz(); toast(t('toast.groupStarted', { riders: nRiders(ids.length) }), undoBtn()); },
-  split(d) { const ts = tapTs(), a = active(d.id), e = emit('split', d.id, ts); ui.undo = [e]; buzz(); toast(a ? t('toast.split', { i: a.splits.length + 1, name: rname(d.id), time: fmt(ts - a.start) }) : t('toast.splitEarly', { name: rname(d.id) }), undoBtn()); },
-  stop(d) {
+  start(d) { if (!guard()) return; if (active(d.id)) return; const e = emit('start', d.id, tapTs()); ui.undo = [e]; buzz(); toast(t('toast.started', { name: rname(d.id) }), undoBtn()); },
+  startsel() { if (!guard()) return; const ts = tapTs(), ids = ui.sel.filter(r => cur().rider_ids.includes(r) && !active(r)); if (!ids.length) return; ui.undo = ids.map(r => emit('start', r, ts)); ui.sel = []; ui.multi = false; buzz(); toast(t('toast.groupStarted', { riders: nRiders(ids.length) }), undoBtn()); },
+  split(d) { if (!guard()) return; const ts = tapTs(), a = active(d.id), e = emit('split', d.id, ts); ui.undo = [e]; buzz(); toast(a ? t('toast.split', { i: a.splits.length + 1, name: rname(d.id), time: fmt(ts - a.start) }) : t('toast.splitEarly', { name: rname(d.id) }), undoBtn()); },
+  stop(d) { if (!guard()) return;
     const ts = tapTs(), a = active(d.id); buzz();
     if (a && ui.poste === 'both') { (db.pend[ui.sid] = db.pend[ui.sid] || {})[d.id] = ts; save('pend'); return; }
     const e = emit('finish', d.id, ts); ui.undo = [e];
     toast(a ? t('toast.finished', { name: rname(d.id), time: fmt(ts - a.start) }) : t('toast.finishEarly', { name: rname(d.id) }), undoBtn());
   },
-  lap(d) { const p = db.pend[ui.sid] || {}, ts = p[d.id], a = active(d.id); delete p[d.id]; save('pend'); if (ts == null || !a) return; ui.undo = [emit('lap', d.id, ts)]; toast(t('toast.lap', { i: a.laps.length + 1, name: rname(d.id), time: fmt(ts - (a.laps[a.laps.length - 1] ?? a.start)) }), undoBtn()); },
-  fin(d) { const p = db.pend[ui.sid] || {}, ts = p[d.id], a = active(d.id); delete p[d.id]; save('pend'); if (ts == null || !a) return; ui.undo = [emit('finish', d.id, ts)]; toast(t('toast.finished', { name: rname(d.id), time: fmt(ts - a.start) }), undoBtn()); },
-  dnf(d) { const a = active(d.id); if (!a) return; const p = db.pend[ui.sid] || {}, ts = p[d.id] != null ? p[d.id] : tapTs(); delete p[d.id]; save('pend'); buzz();
+  lap(d) { if (!guard()) return; const p = db.pend[ui.sid] || {}, ts = p[d.id], a = active(d.id); delete p[d.id]; save('pend'); if (ts == null || !a) return; ui.undo = [emit('lap', d.id, ts)]; toast(t('toast.lap', { i: a.laps.length + 1, name: rname(d.id), time: fmt(ts - (a.laps[a.laps.length - 1] ?? a.start)) }), undoBtn()); },
+  fin(d) { if (!guard()) return; const p = db.pend[ui.sid] || {}, ts = p[d.id], a = active(d.id); delete p[d.id]; save('pend'); if (ts == null || !a) return; ui.undo = [emit('finish', d.id, ts)]; toast(t('toast.finished', { name: rname(d.id), time: fmt(ts - a.start) }), undoBtn()); },
+  dnf(d) { if (!guard()) return; const a = active(d.id); if (!a) return; const p = db.pend[ui.sid] || {}, ts = p[d.id] != null ? p[d.id] : tapTs(); delete p[d.id]; save('pend'); buzz();
     ui.undo = [emit('finish', d.id, ts, a.id)]; toast(t('toast.dnf', { name: rname(d.id) }), undoBtn()); },
   nostop(d) { const p = db.pend[ui.sid] || {}; delete p[d.id]; save('pend'); },
   undo() { (ui.undo || []).forEach(e => emit('void', e.rider_id, now(), e.id)); ui.undo = null; document.querySelectorAll('.toast').forEach(e => e.remove()); },
-  delrun(d) { const run = R.find(x => x.id === d.id); if (!run) return; const evs = (db.events[ui.sid] || []).filter(e => run.evs.includes(e.id)); evs.forEach(e => emit('void', e.rider_id, now(), e.id)); toast(t('toast.runDeleted')); },
+  delrun(d) { if (!guard()) return; const run = R.find(x => x.id === d.id); if (!run) return; const evs = (db.events[ui.sid] || []).filter(e => run.evs.includes(e.id)); evs.forEach(e => emit('void', e.rider_id, now(), e.id)); toast(t('toast.runDeleted')); },
   copy() {
     const s = cur(), ids = s.rider_ids.filter(r => times(r).length).sort((a, b) => best(a) - best(b));
     const txt = [[t('csv.rank'), t('csv.name'), t('csv.runs'), t('results.best'), t('results.avg'), t('results.max')].join(';'), ...ids.map((r, i) => { const ts = times(r); return [i + 1, rname(r), ts.length, fmt(Math.min(...ts)), fmt(ts.reduce((a, b) => a + b, 0) / ts.length), fmt(Math.max(...ts))].join(';'); })].join('\n');
@@ -1230,6 +1249,10 @@ const A = {
   addrider(d) { const s = cur(); if (!s.rider_ids.includes(d.id)) setRiders(s, [...s.rider_ids, d.id]); },
   addcat(d) { const s = cur(), add = db.riders.filter(r => r.active !== false && r.category === d.id && !s.rider_ids.includes(r.id)).sort((a, b) => a.name.localeCompare(b.name, LOC)).map(r => r.id); setRiders(s, [...s.rider_ids, ...add]); },
   setcat(d) { ui.cat = d.id; },
+  editres() { if (!isAdmin()) return; ui.editSid = ui.editSid === ui.sid ? null : ui.sid; },
+  runedit(d) { if (!guard()) return; ui.runId = d.id; ui.sheet = 'runedit'; },
+  runadd() { if (!guard()) return; ui.sheet = 'runadd'; },
+  runtodnf() { const x = R.find(q => q.id === ui.runId); if (!x || !guard()) return; const c = closing(x), ev = []; if (c) ev.push(emit('void', x.riderId, now(), c.id)); ev.push(emit('finish', x.riderId, x.end != null ? x.end : now(), x.id)); ui.undo = ev; ui.sheet = null; toast(t('toast.dnf', { name: rname(x.riderId) }), undoBtn()); },
   // Share must be called right after the tap: the PDF is already prepared (see prepareExport).
   pdfshare() { const p = ui.pdf; if (!p) return; const file = new File([p.bytes], p.name, { type: 'application/pdf' });
     if (navigator.canShare && navigator.canShare({ files: [file] })) navigator.share({ files: [file], title: p.name }).catch(e => { if (e && e.name !== 'AbortError') saveBlob(p.name, file); });
@@ -1247,11 +1270,20 @@ const A = {
     try { navigator.clipboard.writeText(v).then(() => toast(t('nav.copied')), () => toast(v, null, 10000)); } catch (e) { toast(v, null, 10000); } },
   trkdel(d) { saveTracks(ui.sid, tracksOf(ui.sid).filter(tk => tk.id !== d.id)); },
   // Add a run found on a GPS track to the results, as if it had been timed by the coaches.
-  gpsadd(d) { const x = (ui.det || {})[d.id]; if (!x || !x.rider) return; const r = x.r, ev = [emit('start', x.rider, r.start)]; r.splits.forEach(v => ev.push(emit('split', x.rider, v))); r.laps.forEach(v => ev.push(emit('lap', x.rider, v))); ev.push(emit('finish', x.rider, r.end)); ui.undo = ev; toast(t('toast.gpsAdded', { name: rname(x.rider), time: fmt(r.end - r.start) }), undoBtn()); }
+  gpsadd(d) { if (!guard()) return; const x = (ui.det || {})[d.id]; if (!x || !x.rider) return; const r = x.r, ev = [emit('start', x.rider, r.start)]; r.splits.forEach(v => ev.push(emit('split', x.rider, v))); r.laps.forEach(v => ev.push(emit('lap', x.rider, v))); ev.push(emit('finish', x.rider, r.end)); ui.undo = ev; toast(t('toast.gpsAdded', { name: rname(x.rider), time: fmt(r.end - r.start) }), undoBtn()); }
 };
 
 /* forms */
+// "1:23.45", "83.45" or "1:23,45" → milliseconds
+const parseTime = v => { const m = String(v).trim().replace(',', '.').match(/^(?:(\d+):)?(\d+(?:\.\d*)?)$/); if (!m) return null; const ms = Math.round(((+m[1] || 0) * 60 + +m[2]) * 1000); return ms > 0 ? ms : null; };
+// Closing event of a run (finish or abandon), to be cancelled when the run is corrected
+const closing = x => (db.events[ui.sid] || []).find(e => x.evs.includes(e.id) && e.type === 'finish');
 const F = {
+  runedit() { const x = R.find(q => q.id === ui.runId), ms = parseTime($('re-time').value); if (!x || !guard()) return; if (!ms) { toast(t('lock.invalid')); return; }
+    const c = closing(x), ev = []; if (c) ev.push(emit('void', x.riderId, now(), c.id)); ev.push(emit('finish', x.riderId, x.start + ms)); ui.undo = ev; ui.sheet = null; render(); toast(t('lock.fixed', { name: rname(x.riderId), time: fmt(ms) }), undoBtn()); },
+  runadd() { const s = cur(), r = $('ra-rider').value, ms = parseTime($('ra-time').value); if (!s || !r || !guard()) return; if (!ms) { toast(t('lock.invalid')); return; }
+    const evs = db.events[ui.sid] || [], base = evs.length ? Math.max(...evs.map(e => +e.ts)) + 60000 : new Date(s.date + 'T12:00:00').getTime();   // after the existing runs, so the order stays right
+    ui.undo = [emit('start', r, base), emit('finish', r, base + ms)]; ui.sheet = null; render(); toast(t('lock.added', { name: rname(r), time: fmt(ms) }), undoBtn()); },
   async auth() {
     const email = $('l-mail').value.trim().toLowerCase(), pass = $('l-pass') ? $('l-pass').value : '', redirect = location.origin + location.pathname;
     if (!sb) { toast(t('setup.libMissing')); return; }

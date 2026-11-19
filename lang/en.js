@@ -253,5 +253,21 @@ self.CHRONO_LANGS.en = {
   'chrono.dnfAria': '{name} did not finish',
   'chrono.dnfCount': '{n} DNF',
   'toast.dnf': 'Did not finish: {name}',
-  'results.dnfAfter': 'stopped after {time}'
+  'results.dnfAfter': 'stopped after {time}',
+  'lock.banner': 'This session ({date}) is over: results are frozen and no new start can be given.',
+  'lock.coachHint': 'Only an admin can correct them, from the Results tab.',
+  'lock.adminHint': 'To correct them, use Edit in the Results tab.',
+  'lock.frozen': 'Results frozen: the session is over.',
+  'lock.editing': 'Correction mode: each change is recorded and shared with the other coaches.',
+  'lock.edit': 'Edit',
+  'lock.stopEdit': 'Finish corrections',
+  'lock.addRun': 'Add a run',
+  'lock.modify': 'Edit',
+  'lock.editTitle': 'Run {i} of {name}',
+  'lock.time': 'Time (min:s.hundredths, e.g. 1:23.45)',
+  'lock.toDnf': 'Mark as DNF',
+  'lock.invalid': 'Invalid time: write it like 1:23.45',
+  'lock.fixed': 'Time corrected: {name} {time}',
+  'lock.added': 'Run added: {name} {time}',
+  'lock.blocked': 'Session over: results are frozen. An admin can correct them from the Results tab.'
 };

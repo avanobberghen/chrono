@@ -196,3 +196,8 @@ h2{font:700 12px/1 var(--display);letter-spacing:.09em;text-transform:uppercase;
 .duo .act{min-width:46px}
 .dnftag{color:var(--stop);font-weight:700}
 .toast{width:max-content}
+
+/* Frozen sessions and correction mode */
+.hint.lock{border-style:solid;border-color:var(--line);display:flex;flex-direction:column;gap:8px}
+.hint.lock.on{border-color:var(--split);color:var(--ink)}
+.runs button.mod{color:var(--accent)}
