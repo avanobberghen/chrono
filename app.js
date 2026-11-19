@@ -80,7 +80,7 @@ const $ = id => document.getElementById(id);
 
 /* ---------- screen state ---------- */
 const ui = { view: db.me ? 'home' : 'login', sid: null, tab: 'chrono', poste: L.get('poste', 'start'), sheet: null, adminTab: 'youth',
-  multi: false, sel: [], showArch: false, loginMode: 'in', undo: null, confirmDel: false, busy: false };
+  multi: false, sel: [], showArch: false, det: {}, loginMode: 'in', undo: null, confirmDel: false, busy: false };
 const app = $('app');
 let R = [], ORPH = {};            // runs computed for the open session, taps received before their start
 let netOK = navigator.onLine !== false, authed = false, pushing = false;
@@ -314,12 +314,12 @@ const V = {
   },
   session() {
     const s = cur(), P = [['start', t('post.start')], ['inter', t('post.split')], ['finish', t('post.finish')], ['both', t('post.both')]];
-    const T = [['chrono', t('tab.chrono')], ['results', t('tab.results')], ['gpx', t('tab.gpx')]], [c, lab] = netLabel();
+    const T = [['chrono', t('tab.chrono')], ['results', t('tab.results')], ['analysis', t('tab.analysis')], ['gpx', t('tab.gpx')]], [c, lab] = netLabel();
     return `<header class="bar"><button class="back" data-act="home">‹ ${t('session.back')}</button><span style="flex:1"></span>
       <button class="net ${c}" id="net" data-act="sync"><i></i>${esc(lab)}</button></header>
     <header class="bar" style="padding-top:0"><h1>${esc(s.name)}<small>${fDate(s.date)} · ${nRiders(s.rider_ids.length)}${s.archived ? ' · ' + t('session.archived') : ''}</small></h1></header>
     <div class="tabs" role="tablist">${T.map(([k, l]) => `<button role="tab" aria-selected="${ui.tab === k}" data-act="tab" data-id="${k}">${l}</button>`).join('')}</div>
-    ${ui.tab === 'chrono' ? `<div class="label">${t('session.myPost')}</div><div class="seg">${P.map(([k, l]) => `<button aria-pressed="${ui.poste === k}" data-act="poste" data-id="${k}">${l}</button>`).join('')}</div>${chrono(s)}` : ui.tab === 'results' ? results(s) : gpxView(s)}`;
+    ${ui.tab === 'chrono' ? `<div class="label">${t('session.myPost')}</div><div class="seg">${P.map(([k, l]) => `<button aria-pressed="${ui.poste === k}" data-act="poste" data-id="${k}">${l}</button>`).join('')}</div>${chrono(s)}` : ui.tab === 'results' ? results(s) : ui.tab === 'analysis' ? analysis(s) : gpxView(s)}`;
   },
   admin() {
     const y = ui.adminTab === 'youth', riders = db.riders.filter(r => r.active !== false).sort((a, b) => a.name.localeCompare(b.name, LOC));
@@ -390,48 +390,284 @@ function results(s) {
   <div class="tools"><button class="ghost" data-act="csv">${t('results.exportCsv')}</button><button class="ghost" data-act="copy">${t('results.copy')}</button></div>`;
 }
 
-/* ---------- GPX ---------- */
+/* ---------- GPS tracks (GPX and FIT) ---------- */
+// A track is a list of points [lat, lon, elevation|null, time in ms|null], at most MAXPTS points.
+const MAXPTS = 4000, RAD = Math.PI / 180, RE = 6371000, FIT_EPOCH = 631065600; // FIT time counts from 1989-12-31 UTC
+function thin(pts) {
+  if (pts.length <= MAXPTS) return pts;
+  const k = pts.length / MAXPTS; return pts.filter((_, i) => Math.floor(i / k) !== Math.floor((i - 1) / k) || i === pts.length - 1);
+}
+const roundPt = p => [+p[0].toFixed(6), +p[1].toFixed(6), p[2] == null || isNaN(p[2]) ? null : +p[2].toFixed(1), p[3] || null];
 function parseGpx(txt) {
   const doc = new DOMParser().parseFromString(txt, 'application/xml'); let n = [...doc.getElementsByTagName('trkpt')]; if (!n.length) n = [...doc.getElementsByTagName('rtept')];
-  let pts = n.map(p => { const e = p.getElementsByTagName('ele')[0], tm = p.getElementsByTagName('time')[0]; return [+p.getAttribute('lat'), +p.getAttribute('lon'), e ? +e.textContent : null, tm ? Date.parse(tm.textContent) : null]; }).filter(p => isFinite(p[0]) && isFinite(p[1]));
-  if (pts.length > 2500) { const k = pts.length / 2500; pts = pts.filter((_, i) => Math.floor(i / k) !== Math.floor((i - 1) / k) || i === pts.length - 1); }
-  return pts.map(p => [+p[0].toFixed(6), +p[1].toFixed(6), p[2] == null || isNaN(p[2]) ? null : +p[2].toFixed(1), p[3] || null]);
+  const pts = n.map(p => { const e = p.getElementsByTagName('ele')[0], tm = p.getElementsByTagName('time')[0]; return [+p.getAttribute('lat'), +p.getAttribute('lon'), e ? +e.textContent : null, tm ? Date.parse(tm.textContent) : null]; }).filter(p => isFinite(p[0]) && isFinite(p[1]));
+  return thin(pts).map(roundPt);
 }
-function gpxStats(pts) {
-  const Rt = 6371000, rad = Math.PI / 180, c0 = Math.cos(pts[0][0] * rad); let dist = 0, up = 0, down = 0, ref = pts[0][2];
-  const seg = [], xy = [], step = Math.max(1, Math.floor(pts.length / 400));
-  pts.forEach((p, i) => {
-    if (i % step === 0 || i === pts.length - 1) xy.push([p[1] * c0, p[0]]);
-    if (!i) return; const q = pts[i - 1], a = Math.sin((p[0] - q[0]) * rad / 2) ** 2 + Math.cos(p[0] * rad) * Math.cos(q[0] * rad) * Math.sin((p[1] - q[1]) * rad / 2) ** 2, d = 2 * Rt * Math.asin(Math.sqrt(a)); dist += d;
-    if (p[2] != null && ref != null) { const de = p[2] - ref; if (de > 1) { up += de; ref = p[2]; } else if (de < -1) { down -= de; ref = p[2]; } } else if (ref == null) ref = p[2];
-    if (p[3] && q[3] && p[3] > q[3]) seg.push([dist, d / ((p[3] - q[3]) / 1000) * 3.6]);
-  });
-  const sm = seg.map((s, i) => { const w = seg.slice(Math.max(0, i - 2), i + 3); return [s[0], w.reduce((a, b) => a + b[1], 0) / w.length]; }), ss = Math.max(1, Math.floor(sm.length / 200)), sp = sm.filter((_, i) => i % ss === 0);
-  const t0 = pts[0][3], t1 = pts[pts.length - 1][3], dur = t0 && t1 ? t1 - t0 : null;
-  return { dist, up, down, dur, vavg: dur ? dist / (dur / 1000) * 3.6 : 0, vmax: sm.length ? Math.max(...sm.map(s => s[1])) : 0, xy, sp };
-}
-function gpxView(s) {
-  const g0 = db.gpx[s.id];
-  if (!g0 || !g0.pts || g0.pts.length < 2) return `<div class="hint">${t('gpx.intro')}</div>
-    <div class="tools"><label class="primary file">${t('gpx.import')}<input type="file" id="gpx-file" accept=".gpx,application/gpx+xml,text/xml,application/xml"></label></div>`;
-  const g = gpxStats(g0.pts), xs = g.xy.map(p => p[0]), ys = g.xy.map(p => p[1]), x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys), sc = Math.min(300 / ((x1 - x0) || 1e-9), 180 / ((y1 - y0) || 1e-9));
-  const P = g.xy.map(p => [(10 + (p[0] - x0) * sc).toFixed(1), (190 - (p[1] - y0) * sc).toFixed(1)]), tr = P.map(p => p.join(',')).join(' ');
-  const vm = Math.max(g.vmax, 1), D = g.dist || 1, sp = g.sp.map(p => (30 + p[0] / D * 280).toFixed(1) + ',' + (95 - p[1] / vm * 80).toFixed(1));
-  const num = (v, d) => { try { return v.toLocaleString(LOC, { minimumFractionDigits: d, maximumFractionDigits: d }); } catch (e) { return v.toFixed(d); } };
-  const k = (l, v) => `<div class="kpi"><span>${l}</span><b>${v}</b></div>`;
-  let per = '';
-  if (g0.riderId) {
-    const rows = R.filter(x => x.riderId === g0.riderId && x.end != null).map((x, i) => { const sl = g0.pts.filter(p => p[3] && p[3] >= x.start && p[3] <= x.end); if (sl.length < 2) return `<div><span>${i + 1}.</span><b>${fmt(x.end - x.start)}</b><em>${t('gpx.noPoints')}</em></div>`; const st = gpxStats(sl); return `<div><span>${i + 1}.</span><b>${fmt(x.end - x.start)}</b><em>${t('gpx.runLine', { m: Math.round(st.dist), avg: num(st.dist / ((x.end - x.start) / 1000) * 3.6, 1), max: num(st.vmax, 1) })}</em></div>`; });
-    per = `<h2>${t('gpx.runsOf', { name: esc(rname(g0.riderId)) })}</h2><div class="res"><div class="runs">${rows.join('') || `<div><em>${t('gpx.noFinished')}</em></div>`}</div></div>`;
+// Minimal FIT decoder: reads only the "record" messages (global number 20) and their
+// timestamp (253), position_lat (0), position_long (1), altitude (2) and enhanced_altitude (78).
+function parseFit(buf) {
+  const u8 = new Uint8Array(buf), dv = new DataView(buf), hs = u8[0];
+  if (hs < 12 || String.fromCharCode(u8[8], u8[9], u8[10], u8[11]) !== '.FIT') throw new Error('not a FIT file');
+  const end = Math.min(hs + dv.getUint32(4, true), u8.length), defs = {}, pts = [];
+  let p = hs, lastTs = 0;
+  const read = (d, at) => {
+    const v = {};
+    for (const f of d.fields) {
+      if (f.num !== 253 && f.num !== 0 && f.num !== 1 && f.num !== 2 && f.num !== 78) continue;
+      const o = at + f.off;
+      if (f.sz === 4) { const x = (f.num === 0 || f.num === 1) ? dv.getInt32(o, d.le) : dv.getUint32(o, d.le); if (x !== 0x7FFFFFFF && x !== 0xFFFFFFFF) v[f.num] = x; }
+      else if (f.sz === 2) { const x = dv.getUint16(o, d.le); if (x !== 0xFFFF) v[f.num] = x; }
+    }
+    return v;
+  };
+  const record = (v, ts) => {
+    if (v[0] == null || v[1] == null) return;
+    const ele = v[78] != null ? v[78] / 5 - 500 : v[2] != null ? v[2] / 5 - 500 : null;
+    pts.push([v[0] * 180 / 2147483648, v[1] * 180 / 2147483648, ele, ts ? (ts + FIT_EPOCH) * 1000 : null]);
+  };
+  while (p < end) {
+    const h = u8[p++];
+    if (h & 0x80) {                                   // data message with a compressed timestamp
+      const d = defs[(h >> 5) & 3]; if (!d || p + d.size > end) break;
+      const off = h & 0x1F; lastTs = lastTs + ((off - (lastTs & 0x1F)) & 0x1F);
+      const v = read(d, p); p += d.size; if (d.g === 20) record(v, lastTs);
+    } else if (h & 0x40) {                            // definition message
+      const le = u8[p + 1] === 0, g = dv.getUint16(p + 2, le), nf = u8[p + 4]; p += 5;
+      const fields = []; let size = 0;
+      for (let i = 0; i < nf; i++) { fields.push({ num: u8[p], sz: u8[p + 1], off: size }); size += u8[p + 1]; p += 3; }
+      if (h & 0x20) { const nd = u8[p++]; for (let i = 0; i < nd; i++) { size += u8[p + 1]; p += 3; } }   // developer fields: skipped
+      defs[h & 0x0F] = { le, g, fields, size };
+    } else {                                          // normal data message
+      const d = defs[h & 0x0F]; if (!d || p + d.size > end) break;
+      const v = read(d, p); p += d.size; if (v[253] != null) lastTs = v[253]; if (d.g === 20) record(v, lastTs);
+    }
   }
-  return `<div class="label">${esc(g0.name)}</div>
-  <div class="kpis">${k(t('gpx.distance'), num(g.dist / 1000, 2) + ' km')}${k(t('gpx.duration'), g.dur ? fmt(g.dur, 1) : '–')}${k(t('gpx.avgSpeed'), g.dur ? num(g.vavg, 1) + ' km/h' : '–')}${k(t('gpx.maxSpeed'), g.vmax ? num(g.vmax, 1) + ' km/h' : '–')}${k(t('gpx.climb'), Math.round(g.up) + ' m')}${k(t('gpx.descent'), Math.round(g.down) + ' m')}</div>
-  <div class="plot"><svg viewBox="0 0 320 200" role="img" aria-label="${t('gpx.trackAria')}"><polyline points="${tr}" fill="none" stroke="var(--accent)" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/><circle cx="${P[0][0]}" cy="${P[0][1]}" r="5" fill="var(--go)"/><circle cx="${P[P.length - 1][0]}" cy="${P[P.length - 1][1]}" r="5" fill="var(--stop)"/></svg></div>
-  ${sp.length > 1 ? `<div class="plot"><svg viewBox="0 0 320 112" role="img" aria-label="${t('gpx.speedAria')}"><line x1="30" y1="15" x2="310" y2="15" stroke="var(--line)"/><line x1="30" y1="95" x2="310" y2="95" stroke="var(--line)"/>
+  return thin(pts).map(roundPt);
+}
+async function readTrackFile(file) {
+  let buf = await file.arrayBuffer(), u8 = new Uint8Array(buf);
+  if (u8[0] === 0x1F && u8[1] === 0x8B && self.DecompressionStream) {   // .gz export (Strava, etc.)
+    buf = await new Response(new Blob([buf]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer(); u8 = new Uint8Array(buf);
+  }
+  if (u8.length > 12 && String.fromCharCode(u8[8], u8[9], u8[10], u8[11]) === '.FIT') return parseFit(buf);
+  return parseGpx(new TextDecoder().decode(u8));
+}
+
+// Tracks of a session. Older data held a single track as {name, riderId, pts}.
+function tracksOf(sid) {
+  const g = db.gpx[sid]; if (!g) return [];
+  if (!g.tracks && g.pts) { db.gpx[sid] = { tracks: [{ id: 't0', name: g.name, riderId: g.riderId || null, pts: g.pts }] }; return db.gpx[sid].tracks; }
+  return g.tracks || [];
+}
+function saveTracks(sid, tracks) { db.gpx[sid] = { tracks }; save('gpx'); queue({ k: 'upd', t: 'sessions', id: sid, patch: { gpx: tracks.length ? db.gpx[sid] : null } }); }
+
+const hav = (a, b) => { const x = Math.sin((b[0] - a[0]) * RAD / 2) ** 2 + Math.cos(a[0] * RAD) * Math.cos(b[0] * RAD) * Math.sin((b[1] - a[1]) * RAD / 2) ** 2; return 2 * RE * Math.asin(Math.sqrt(x)); };
+const cumCache = new WeakMap();
+function cum(pts) { let c = cumCache.get(pts); if (c) return c; c = new Float64Array(pts.length); for (let i = 1; i < pts.length; i++) c[i] = c[i - 1] + hav(pts[i - 1], pts[i]); cumCache.set(pts, c); return c; }
+const timed = pts => pts.length > 1 && pts[0][3] && pts[pts.length - 1][3];
+// Where the rider was at time ts (linear interpolation), and the distance travelled since the start of the track.
+function at(pts, ts) {
+  const n = pts.length; if (!timed(pts) || ts < pts[0][3] - 2000 || ts > pts[n - 1][3] + 2000) return null;
+  let lo = 0, hi = n - 1; while (hi - lo > 1) { const m = (lo + hi) >> 1; if ((pts[m][3] || 0) <= ts) lo = m; else hi = m; }
+  const a = pts[lo], b = pts[hi], f = b[3] > a[3] ? Math.min(1, Math.max(0, (ts - a[3]) / (b[3] - a[3]))) : 0, c = cum(pts);
+  return { lat: a[0] + (b[0] - a[0]) * f, lon: a[1] + (b[1] - a[1]) * f, d: c[lo] + (c[hi] - c[lo]) * f };
+}
+const med = a => { if (!a.length) return null; const s = [...a].sort((x, y) => x - y), m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
+
+/* The course: start, split and finish points found by matching the timed runs with the position
+   of the rider who carried the device. Distances are measured along the track. */
+const segKey = (a, b) => a + '>' + b;
+function course(sid) {
+  const tracks = tracksOf(sid).filter(tk => tk.riderId && timed(tk.pts));
+  const G = {}, S = {}, laps = [], refs = new Set(); let n = 0;
+  const add = (o, k, v) => (o[k] = o[k] || []).push(v);
+  for (const tk of tracks) for (const r of R.filter(x => x.riderId === tk.riderId && x.end != null)) {
+    const a0 = at(tk.pts, r.start), a1 = at(tk.pts, r.end); if (!a0 || !a1) continue;
+    n++; refs.add(tk.riderId); add(G, 'start', a0);
+    let prev = a0, pk = 'start';
+    r.splits.forEach((ts, i) => { const a = at(tk.pts, ts); if (!a) return; const k = 'split' + (i + 1); add(G, k, a); add(S, segKey(pk, k), a.d - prev.d); prev = a; pk = k; });
+    add(G, 'finish', a1);
+    if (r.laps.length) { let q = a0; [...r.laps, r.end].forEach(ts => { const a = at(tk.pts, ts); if (a) { laps.push(a.d - q.d); q = a; } }); }
+    else { add(S, segKey(pk, 'finish'), a1.d - prev.d); add(S, 'total', a1.d - a0.d); }
+  }
+  if (!n) return null;
+  const order = k => k === 'start' ? 0 : k === 'finish' ? 1e3 : +k.slice(5);
+  const gates = Object.keys(G).sort((a, b) => order(a) - order(b)).map(k => ({ key: k, lat: med(G[k].map(x => x.lat)), lon: med(G[k].map(x => x.lon)), n: G[k].length }));
+  const seg = {}; Object.keys(S).forEach(k => { seg[k] = med(S[k]); });
+  const st = gates.find(g => g.key === 'start'), fi = gates.find(g => g.key === 'finish');
+  return { gates, seg, total: seg.total || null, lap: laps.length ? med(laps) : null, circuit: !!(st && fi && hav([st.lat, st.lon], [fi.lat, fi.lon]) < 30), runs: n, refs: [...refs] };
+}
+// Distance covered by a run, from the course: one lap length per lap, or the start-to-finish length.
+function runDist(r, C) { if (!C) return null; if (r.laps.length) return C.lap ? C.lap * (r.laps.length + 1) : null; return C.total; }
+const kmh = (m, ms) => m && ms > 0 ? m / (ms / 1000) * 3.6 : null;
+
+// Times when a track passes within `rad` metres of a gate (closest point of each pass).
+function passes(pts, g, rad) {
+  const out = [], kx = Math.cos(g.lat * RAD) * RE * RAD, ky = RE * RAD; let bestP = null;
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1], b = pts[i]; if (!a[3] || !b[3]) continue;
+    const ax = (a[1] - g.lon) * kx, ay = (a[0] - g.lat) * ky, dx = (b[1] - a[1]) * kx, dy = (b[0] - a[0]) * ky, L = dx * dx + dy * dy;
+    const f = L ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / L)) : 0, d = Math.hypot(ax + dx * f, ay + dy * f);
+    if (d < rad) { const ts = a[3] + (b[3] - a[3]) * f; if (!bestP || d < bestP.d) bestP = { d, ts }; }
+    else if (bestP) { out.push(Math.round(bestP.ts)); bestP = null; }
+  }
+  if (bestP) out.push(Math.round(bestP.ts));
+  return out.filter((v, i, arr) => !i || v - arr[i - 1] > 5000);
+}
+/* Runs found on a track by the course points alone: this is how the start, split and finish found
+   on one rider's track are applied to the other riders who recorded their ride. */
+function detectRuns(tk, C) {
+  if (!C || !timed(tk.pts)) return [];
+  const G = k => C.gates.find(g => g.key === k), RADIUS = 20, found = [];
+  const known = r => tk.riderId && R.some(x => x.riderId === tk.riderId && Math.abs(x.start - r.start) < 10000);
+  if (C.circuit) {
+    const P = passes(tk.pts, G('start'), RADIUS); let grp = [];
+    const flush = () => { if (grp.length > 1) found.push({ start: grp[0], splits: [], laps: grp.slice(1, -1), end: grp[grp.length - 1] }); grp = []; };
+    P.forEach(v => { if (grp.length && v - grp[grp.length - 1] > 600000) flush(); grp.push(v); }); flush();
+  } else if (G('start') && G('finish')) {
+    const S = passes(tk.pts, G('start'), RADIUS), F = passes(tk.pts, G('finish'), RADIUS);
+    const splitGates = C.gates.filter(g => g.key.startsWith('split')).map(g => passes(tk.pts, g, RADIUS));
+    S.forEach((s, i) => {
+      const f = F.find(v => v > s + 3000); if (!f || f - s > 1200000 || (S[i + 1] && S[i + 1] < f)) return;
+      const splits = []; for (const P of splitGates) { const v = P.find(x => x > s && x < f); if (v == null) break; splits.push(v); }
+      found.push({ start: s, splits, laps: [], end: f });
+    });
+  }
+  return found.filter(r => !known(r));
+}
+
+function trackStats(pts) {
+  const xy = [], seg = [], step = Math.max(1, Math.floor(pts.length / 400)), c = cum(pts); let up = 0, down = 0, ref = pts[0][2];
+  pts.forEach((p, i) => {
+    if (i % step === 0 || i === pts.length - 1) xy.push(p);
+    if (!i) return; const q = pts[i - 1];
+    if (p[2] != null && ref != null) { const de = p[2] - ref; if (de > 1) { up += de; ref = p[2]; } else if (de < -1) { down -= de; ref = p[2]; } } else if (ref == null) ref = p[2];
+    if (p[3] && q[3] && p[3] > q[3]) { const v = (c[i] - c[i - 1]) / ((p[3] - q[3]) / 1000) * 3.6; if (v < 150) seg.push([c[i], v]); }   // ignore GPS jumps
+  });
+  const sm = seg.map((s, i) => { const w = seg.slice(Math.max(0, i - 2), i + 3); return [s[0], w.reduce((a, b) => a + b[1], 0) / w.length]; }), ss = Math.max(1, Math.floor(sm.length / 200));
+  const dist = c[c.length - 1], dur = timed(pts) ? pts[pts.length - 1][3] - pts[0][3] : null;
+  return { dist, up, down, dur, vavg: dur ? dist / (dur / 1000) * 3.6 : 0, vmax: sm.length ? Math.max(...sm.map(s => s[1])) : 0, xy, sp: sm.filter((_, i) => i % ss === 0) };
+}
+const num = (v, d) => { try { return v.toLocaleString(LOC, { minimumFractionDigits: d, maximumFractionDigits: d }); } catch (e) { return v.toFixed(d); } };
+const metres = m => m >= 1000 ? num(m / 1000, 2) + ' km' : Math.round(m) + ' m';
+const gateLabel = k => k === 'start' ? t('gate.start') : k === 'finish' ? t('gate.finish') : t('gate.split', { i: k.slice(5) });
+const gateShort = k => k === 'start' ? t('gate.startShort') : k === 'finish' ? t('gate.finishShort') : t('gate.splitShort', { i: k.slice(5) });
+
+function mapSvg(tracks, C) {
+  const all = tracks.flatMap(tk => trackStats(tk.pts).xy); if (!all.length) return '';
+  const c0 = Math.cos(all[0][0] * RAD), X = p => p[1] * c0, Y = p => p[0];
+  const pts = all.concat(C ? C.gates.map(g => [g.lat, g.lon]) : []), xs = pts.map(X), ys = pts.map(Y);
+  const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys), sc = Math.min(296 / ((x1 - x0) || 1e-9), 176 / ((y1 - y0) || 1e-9));
+  const ox = 12 + (296 - (x1 - x0) * sc) / 2, oy = 188 - (176 - (y1 - y0) * sc) / 2;
+  const P = p => [(ox + (X(p) - x0) * sc).toFixed(1), (oy - (Y(p) - y0) * sc).toFixed(1)];
+  const lines = tracks.map(tk => { const ref = C && C.refs.includes(tk.riderId); return `<polyline points="${trackStats(tk.pts).xy.map(p => P(p).join(',')).join(' ')}" fill="none" stroke="${ref ? 'var(--accent)' : 'var(--muted)'}" stroke-width="${ref ? 3 : 2}" stroke-opacity="${ref ? 1 : .6}" stroke-linejoin="round" stroke-linecap="round"><title>${esc(tk.name)}</title></polyline>`; }).join('');
+  const gates = C ? C.gates.map(g => { const [x, y] = P([g.lat, g.lon]), col = g.key === 'start' ? 'var(--go)' : g.key === 'finish' ? 'var(--stop)' : 'var(--split)';
+    return `<g><circle cx="${x}" cy="${y}" r="7" fill="${col}" stroke="var(--surface)" stroke-width="2"><title>${esc(gateLabel(g.key))}</title></circle><text x="${x}" y="${(+y - 11).toFixed(1)}" text-anchor="middle" class="gtext">${esc(gateShort(g.key))}</text></g>`; }).join('') : '';
+  return `<div class="plot"><svg viewBox="0 0 320 200" role="img" aria-label="${t('gpx.trackAria')}">${lines}${gates}</svg></div>`;
+}
+function speedSvg(st) {
+  if (st.sp.length < 2) return '';
+  const vm = Math.max(st.vmax, 1), D = st.dist || 1, sp = st.sp.map(p => (30 + p[0] / D * 280).toFixed(1) + ',' + (95 - p[1] / vm * 80).toFixed(1));
+  return `<div class="plot"><svg viewBox="0 0 320 112" role="img" aria-label="${t('gpx.speedAria')}"><line x1="30" y1="15" x2="310" y2="15" stroke="var(--line)"/><line x1="30" y1="95" x2="310" y2="95" stroke="var(--line)"/>
     <polygon points="30,95 ${sp.join(' ')} 310,95" fill="var(--accent)" opacity=".18"/><polyline points="${sp.join(' ')}" fill="none" stroke="var(--accent)" stroke-width="2"/>
-    <text x="26" y="18" text-anchor="end">${Math.round(vm)}</text><text x="26" y="98" text-anchor="end">0</text><text x="30" y="108">${t('gpx.speedAxis')}</text><text x="310" y="108" text-anchor="end">${num(g.dist / 1000, 2)} km</text></svg></div>` : ''}
-  <div class="field">${t('gpx.carriedBy')}<select id="gpx-rider"><option value="">${t('gpx.notSpecified')}</option>${s.rider_ids.map(r => `<option value="${r}" ${g0.riderId === r ? 'selected' : ''}>${esc(rname(r))}</option>`).join('')}</select></div>
-  ${per}<div class="tools"><button class="ghost" data-act="gpxclear">${t('gpx.remove')}</button></div>`;
+    <text x="26" y="18" text-anchor="end">${Math.round(vm)}</text><text x="26" y="98" text-anchor="end">0</text><text x="30" y="108">${t('gpx.speedAxis')}</text><text x="310" y="108" text-anchor="end">${metres(st.dist)}</text></svg></div>`;
+}
+const importBtn = cls => `<label class="${cls} file">${t('gpx.import')}<input type="file" id="gpx-file" accept=".gpx,.fit,.gz,application/gpx+xml,application/octet-stream,text/xml,application/xml"></label>`;
+
+function gpxView(s) {
+  const tracks = tracksOf(s.id);
+  if (!tracks.length) return `<div class="hint">${t('gpx.intro')}</div><div class="tools">${importBtn('primary')}</div>`;
+  const C = course(s.id), k = (l, v) => `<div class="kpi"><span>${l}</span><b>${v}</b></div>`;
+  ui.det = {};
+  let head;
+  if (C) {
+    const segs = Object.keys(C.seg).filter(x => x !== 'total').map(x => { const [a, b] = x.split('>'); return `<div><span>${esc(gateLabel(a))} → ${esc(gateLabel(b))}</span><b>${metres(C.seg[x])}</b></div>`; }).join('');
+    head = `<div class="kpis">${C.total ? k(t('gpx.courseLength'), metres(C.total)) : ''}${C.lap ? k(t('gpx.lapLength'), metres(C.lap)) : ''}${k(t('gpx.gatesFound'), C.gates.length)}</div>
+      ${segs ? `<div class="res"><div class="runs segs">${segs}</div></div>` : ''}
+      <div class="note">${t('gpx.courseFrom', { runs: nRuns(C.runs), names: esc(C.refs.map(rname).join(', ')) })}</div>`;
+  } else head = `<div class="hint">${t('gpx.noCourse')}</div>`;
+  const cards = tracks.map((tk, ti) => {
+    const st = trackStats(tk.pts), mine = tk.riderId ? R.filter(x => x.riderId === tk.riderId && x.end != null) : [];
+    const rows = mine.map((x, i) => { const sl = timed(tk.pts) ? tk.pts.filter(p => p[3] && p[3] >= x.start && p[3] <= x.end) : []; if (sl.length < 2) return `<div><span>${i + 1}.</span><b>${fmt(x.end - x.start)}</b><em>${t('gpx.noPoints')}</em></div>`; const ss = trackStats(sl); return `<div><span>${i + 1}.</span><b>${fmt(x.end - x.start)}</b><em>${t('gpx.runLine', { m: Math.round(ss.dist), avg: num(kmh(ss.dist, x.end - x.start), 1), max: num(ss.vmax, 1) })}</em></div>`; }).join('');
+    const det = detectRuns(tk, C);
+    const detRows = det.map((r, i) => { const id = tk.id + ':' + i; ui.det[id] = { r, rider: tk.riderId }; const d = runDist(r, C);
+      return `<div><span>${new Date(r.start).toLocaleTimeString(LOC, { hour: '2-digit', minute: '2-digit' })}</span><b>${fmt(r.end - r.start)}</b><em>${[r.laps.length ? t('results.lapsCount', { n: r.laps.length + 1 }) : '', d ? num(kmh(d, r.end - r.start), 1) + ' km/h' : ''].filter(Boolean).join(' · ')}</em>${tk.riderId ? `<button data-act="gpsadd" data-id="${esc(id)}">${t('gpx.addRun')}</button>` : ''}</div>`; }).join('');
+    return `<details class="res trk" ${ti === 0 ? 'open' : ''}><summary class="trk-head"><div class="who"><b>${esc(tk.name)}</b><small>${tk.riderId ? esc(rname(tk.riderId)) : t('gpx.riderNotSet')} · ${metres(st.dist)}</small></div></summary>
+      <div class="trk-body">
+      <div class="field">${t('gpx.carriedBy')}<select data-track="${esc(tk.id)}"><option value="">${t('gpx.notSpecified')}</option>${s.rider_ids.map(r => `<option value="${r}" ${tk.riderId === r ? 'selected' : ''}>${esc(rname(r))}</option>`).join('')}</select></div>
+      ${!timed(tk.pts) ? `<div class="note">${t('gpx.noTime')}</div>` : ''}
+      <div class="kpis">${k(t('gpx.distance'), metres(st.dist))}${k(t('gpx.duration'), st.dur ? fmt(st.dur, 1) : '–')}${k(t('gpx.avgSpeed'), st.dur ? num(st.vavg, 1) + ' km/h' : '–')}${k(t('gpx.maxSpeed'), st.vmax ? num(st.vmax, 1) + ' km/h' : '–')}${k(t('gpx.climb'), Math.round(st.up) + ' m')}${k(t('gpx.descent'), Math.round(st.down) + ' m')}</div>
+      ${speedSvg(st)}
+      ${rows ? `<h2>${t('gpx.timedRuns')}</h2><div class="runs">${rows}</div>` : ''}
+      ${detRows ? `<h2>${t('gpx.detectedRuns')}</h2><div class="note">${t(tk.riderId ? 'gpx.detectedHelp' : 'gpx.detectedNoRider')}</div><div class="runs">${detRows}</div>` : ''}
+      <div class="tools"><button class="ghost" data-act="trkdel" data-id="${esc(tk.id)}">${t('gpx.remove')}</button></div></div></details>`;
+  }).join('');
+  return `${mapSvg(tracks, C)}${head}<h2>${t('gpx.tracks', { n: tracks.length })}</h2><ul class="list"><li>${cards}</li></ul><div class="tools">${importBtn('ghost')}</div>`;
+}
+
+/* ---------- Analysis ---------- */
+// Small SVG helpers. Colours come from the theme; one hue per chart, identity is carried by row labels.
+function sparkSvg(vals, bestI, w, h) {
+  if (vals.length < 2) return '';
+  const lo = Math.min(...vals), hi = Math.max(...vals), span = (hi - lo) || 1, X = i => 4 + i * (w - 8) / (vals.length - 1), Y = v => 4 + (v - lo) / span * (h - 8);  // faster = higher
+  return `<svg class="spark" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" aria-hidden="true"><polyline points="${vals.map((v, i) => X(i).toFixed(1) + ',' + Y(v).toFixed(1)).join(' ')}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>${vals.map((v, i) => `<circle cx="${X(i).toFixed(1)}" cy="${Y(v).toFixed(1)}" r="${i === bestI ? 4 : 2.5}" fill="${i === bestI ? 'var(--accent)' : 'var(--surface)'}" stroke="var(--accent)" stroke-width="1.5"><title>${t('analysis.runN', { i: i + 1 })} : ${fmt(v)}</title></circle>`).join('')}</svg>`;
+}
+function analysis(s) {
+  const fin = R.filter(x => x.end != null);
+  if (!fin.length) return `<div class="hint">${t('analysis.none')}</div>`;
+  const C = course(s.id), riders = [...new Set(fin.map(x => x.riderId))];
+  const byRider = r => fin.filter(x => x.riderId === r).sort((a, b) => a.start - b.start);
+  const bestOf = r => Math.min(...byRider(r).map(x => x.end - x.start));
+  riders.sort((a, b) => bestOf(a) - bestOf(b));
+  const top = bestOf(riders[0]), allT = fin.map(x => x.end - x.start), bests = riders.map(bestOf);
+  const tile = (l, v, sub) => `<div class="kpi"><span>${l}</span><b>${v}</b>${sub ? `<small>${sub}</small>` : ''}</div>`;
+  const bestRun = byRider(riders[0]).find(x => x.end - x.start === top), bestSpeed = C ? kmh(runDist(bestRun, C), top) : null;
+  let h = `<div class="kpis k4">${tile(t('analysis.runs'), fin.length, nRiders(riders.length))}${tile(t('analysis.sessionBest'), fmt(top), esc(rname(riders[0])))}${tile(t('analysis.medianBest'), fmt(med(bests)), t('analysis.medianBestSub'))}${bestSpeed ? tile(t('analysis.topSpeed'), num(bestSpeed, 1) + ' km/h', t('analysis.onBestRun')) : tile(t('analysis.spread'), '+' + num((Math.max(...bests) - top) / 1000, 2) + ' s', t('analysis.spreadSub'))}</div>`;
+
+  // 1. Every run on one time axis
+  const lo = Math.min(...allT), hi = Math.max(...allT), pad = Math.max(500, (hi - lo) * .06), a0 = lo - pad, a1 = hi + pad, W = 320, LX = 92, RW = W - LX - 8, rowH = 24;
+  const X = v => (LX + (v - a0) / (a1 - a0) * RW).toFixed(1), ticks = [0, 1, 2, 3].map(i => a0 + (a1 - a0) * (i + .5) / 4);
+  const H = riders.length * rowH + 22;
+  h += `<h2>${t('analysis.everyRun')}</h2><div class="note">${t('analysis.everyRunHelp')}</div><div class="plot"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${t('analysis.everyRun')}">
+    ${ticks.map(v => `<line x1="${X(v)}" y1="0" x2="${X(v)}" y2="${H - 18}" stroke="var(--line)"/><text x="${X(v)}" y="${H - 5}" text-anchor="middle">${fmt(v, 1)}</text>`).join('')}
+    ${riders.map((r, i) => { const y = i * rowH + 12, rs = byRider(r), b = bestOf(r), avg = rs.reduce((a, x) => a + x.end - x.start, 0) / rs.length;
+      return `<text x="${LX - 6}" y="${y + 4}" text-anchor="end" class="rl">${esc(rname(r).slice(0, 14))}</text><line x1="${LX}" y1="${y}" x2="${W - 8}" y2="${y}" stroke="var(--line)" stroke-dasharray="2 3"/>
+      ${rs.length > 1 ? `<line x1="${X(avg)}" y1="${y - 7}" x2="${X(avg)}" y2="${y + 7}" stroke="var(--muted)" stroke-width="2"><title>${t('results.avg')} ${fmt(avg)}</title></line>` : ''}
+      ${rs.map((x, k) => { const v = x.end - x.start, isB = v === b; return `<circle cx="${X(v)}" cy="${y}" r="${isB ? 5 : 4}" fill="${isB ? 'var(--accent)' : 'var(--surface)'}" stroke="var(--accent)" stroke-width="2"><title>${esc(rname(r))} · ${t('analysis.runN', { i: k + 1 })} : ${fmt(v)}</title></circle>`; }).join('')}`; }).join('')}
+  </svg></div>`;
+
+  // 2. Gap to the session best
+  const gapMax = Math.max(...bests) - top || 1;
+  h += `<h2>${t('analysis.gap')}</h2><ul class="bars">${riders.map(r => { const g = bestOf(r) - top, d = C ? runDist(byRider(r).find(x => x.end - x.start === bestOf(r)), C) : null;
+    return `<li><span class="bn">${esc(rname(r))}</span><span class="bt"><i style="width:${g ? Math.max(2, g / gapMax * 100).toFixed(1) : 0}%"></i></span><span class="bv">${g ? '+' + num(g / 1000, 2) + ' s' : t('analysis.leader')}${d ? `<small>${num(kmh(d, bestOf(r)), 1)} km/h</small>` : ''}</span></li>`; }).join('')}</ul>`;
+
+  // 3. Progress during the session
+  const multi = riders.filter(r => byRider(r).length > 1);
+  if (multi.length) h += `<h2>${t('analysis.progress')}</h2><div class="note">${t('analysis.progressHelp')}</div><table class="atable"><thead><tr><th>${t('csv.name')}</th><th>${t('analysis.trend')}</th><th>${t('analysis.firstToLast')}</th><th>${t('analysis.consistency')}</th></tr></thead><tbody>${multi.map(r => {
+    const v = byRider(r).map(x => x.end - x.start), d = v[v.length - 1] - v[0], m = v.reduce((a, b) => a + b, 0) / v.length, sd = Math.sqrt(v.reduce((a, b) => a + (b - m) ** 2, 0) / v.length);
+    return `<tr><td>${esc(rname(r))}</td><td>${sparkSvg(v, v.indexOf(Math.min(...v)), 96, 28)}</td><td class="${d < 0 ? 'better' : d > 0 ? 'worse' : ''}">${d < 0 ? '▲ ' : d > 0 ? '▼ ' : ''}${d > 0 ? '+' : d < 0 ? '−' : ''}${num(Math.abs(d) / 1000, 2)} s</td><td>±${num(sd / 1000, 2)} s</td></tr>`; }).join('')}</tbody></table>`;
+
+  // 4. Sectors (when splits were taken)
+  const nS = Math.max(0, ...fin.filter(x => !x.laps.length).map(x => x.splits.length));
+  if (nS) {
+    const keys = [...Array(nS + 1).keys()].map(i => [i ? 'split' + i : 'start', i < nS ? 'split' + (i + 1) : 'finish']);
+    const secOf = (x, i) => { const b = i ? x.splits[i - 1] : x.start, e = i < nS ? x.splits[i] : x.end; return b != null && e != null && (i < nS ? x.splits.length > i : x.splits.length === nS) ? e - b : null; };
+    const bestSec = r => keys.map((_, i) => { const v = byRider(r).filter(x => !x.laps.length).map(x => secOf(x, i)).filter(v => v != null); return v.length ? Math.min(...v) : null; });
+    const table = riders.map(r => ({ r, sec: bestSec(r) })), colBest = keys.map((_, i) => table.map(x => x.sec[i]).filter(v => v != null).sort((a, b) => a - b));
+    const shade = (v, i) => { if (v == null) return ''; const rk = colBest[i].indexOf(v); return rk === 0 ? 's1' : rk === 1 ? 's2' : rk === 2 ? 's3' : ''; };
+    h += `<h2>${t('analysis.sectors')}</h2><div class="note">${t('analysis.sectorsHelp')}</div><div class="scroll"><table class="atable sec"><thead><tr><th>${t('csv.name')}</th>${keys.map(([a, b]) => `<th>${esc(gateShort(a))}→${esc(gateShort(b))}${C && C.seg[segKey(a, b)] ? `<small>${metres(C.seg[segKey(a, b)])}</small>` : ''}</th>`).join('')}<th>${t('analysis.ideal')}</th><th>${t('analysis.gain')}</th></tr></thead><tbody>${table.map(({ r, sec }) => {
+      const ideal = sec.every(v => v != null) ? sec.reduce((a, b) => a + b, 0) : null, gain = ideal != null ? bestOf(r) - ideal : null;
+      return `<tr><td>${esc(rname(r))}</td>${sec.map((v, i) => { const dist = C && C.seg[segKey(keys[i][0], keys[i][1])]; return `<td class="${shade(v, i)}">${v != null ? fmt(v) : '–'}${v != null && dist ? `<small>${num(kmh(dist, v), 1)} km/h</small>` : ''}</td>`; }).join('')}<td>${ideal != null ? fmt(ideal) : '–'}</td><td>${gain > 0 ? '−' + num(gain / 1000, 2) + ' s' : gain === 0 ? '0' : '–'}</td></tr>`; }).join('')}</tbody></table></div>`;
+  }
+
+  // 5. Laps (circuit)
+  const lapRiders = riders.filter(r => byRider(r).some(x => x.laps.length));
+  if (lapRiders.length) h += `<h2>${t('analysis.laps')}</h2><table class="atable"><thead><tr><th>${t('csv.name')}</th><th>${t('analysis.lapTimes')}</th><th>${t('analysis.bestLap')}</th><th>${t('results.avg')}</th></tr></thead><tbody>${lapRiders.map(r => {
+    const L2 = byRider(r).flatMap(x => [...x.laps, x.end].map((v, j, arr) => v - (j ? arr[j - 1] : x.start))), b = Math.min(...L2), avg = L2.reduce((a, c) => a + c, 0) / L2.length;
+    return `<tr><td>${esc(rname(r))}</td><td>${sparkSvg(L2, L2.indexOf(b), 96, 28)}</td><td>${fmt(b)}${C && C.lap ? `<small>${num(kmh(C.lap, b), 1)} km/h</small>` : ''}</td><td>${fmt(avg)}</td></tr>`; }).join('')}</tbody></table>`;
+
+  h += `<div class="note">${t('analysis.basedOn', { runs: nRuns(fin.length) })}${C ? ' ' + t('analysis.speedFrom') : ' ' + t('analysis.speedHint')}</div>`;
+  return h;
 }
 
 /* ---------- sheets ---------- */
@@ -526,7 +762,7 @@ const A = {
   arch() { ui.showArch = !ui.showArch; },
   archive() { const s = cur(); s.archived = !s.archived; save('sessions'); queue({ k: 'upd', t: 'sessions', id: s.id, patch: { archived: s.archived } }); if (s.archived) { A.home(); toast(t('toast.archived')); } else toast(t('toast.unarchived')); },
   delsession() { if (!ui.confirmDel) { ui.confirmDel = true; return; } const id = ui.sid; db.sessions = db.sessions.filter(s => s.id !== id); delete db.events[id]; delete db.gpx[id]; delete db.pend[id]; save('sessions', 'events', 'gpx', 'pend'); queue({ k: 'del', t: 'sessions', id }); A.home(); toast(t('toast.sessionDeleted')); },
-  tab(d) { ui.tab = d.id; if (d.id === 'gpx' && !db.gpx[ui.sid]) pullGpx(ui.sid); },
+  tab(d) { ui.tab = d.id; if ((d.id === 'gpx' || d.id === 'analysis') && !db.gpx[ui.sid]) pullGpx(ui.sid); },
   poste(d) { ui.poste = d.id; L.set('poste', d.id); ui.multi = false; ui.sel = []; },
   multi() { ui.multi = !ui.multi; ui.sel = []; },
   pick(d) { const i = ui.sel.indexOf(d.id); if (i < 0) ui.sel.push(d.id); else ui.sel.splice(i, 1); },
@@ -563,7 +799,9 @@ const A = {
   rmrider(d) { const s = cur(); setRiders(s, s.rider_ids.filter(r => r !== d.id)); if (db.pend[s.id]) { delete db.pend[s.id][d.id]; save('pend'); } },
   delyouth(d) { const r = db.riders.find(r => r.id === d.id); if (!r) return; r.active = false; save('riders'); queue({ k: 'upd', t: 'riders', id: r.id, patch: { active: false } }); toast(t('toast.riderRemoved', { name: r.name })); },
   async delcoach(d) { const { error } = await sb.from('allowed_users').delete().eq('email', d.id); if (error) toast(isNetErr(error) ? t('toast.retryLater') : t('toast.refused', { msg: error.message })); await pullCoaches(); render(); },
-  gpxclear() { delete db.gpx[ui.sid]; save('gpx'); queue({ k: 'upd', t: 'sessions', id: ui.sid, patch: { gpx: null } }); }
+  trkdel(d) { saveTracks(ui.sid, tracksOf(ui.sid).filter(tk => tk.id !== d.id)); },
+  // Add a run found on a GPS track to the results, as if it had been timed by the coaches.
+  gpsadd(d) { const x = (ui.det || {})[d.id]; if (!x || !x.rider) return; const r = x.r, ev = [emit('start', x.rider, r.start)]; r.splits.forEach(v => ev.push(emit('split', x.rider, v))); r.laps.forEach(v => ev.push(emit('lap', x.rider, v))); ev.push(emit('finish', x.rider, r.end)); ui.undo = ev; toast(t('toast.gpsAdded', { name: rname(x.rider), time: fmt(r.end - r.start) }), undoBtn()); }
 };
 
 /* forms */
@@ -614,8 +852,9 @@ document.addEventListener('change', e => {
   if (id === 'lang-pick') { L.set('lang', e.target.value); setLang(e.target.value); e.target.blur(); render(); return; }
   if (id === 'e-name' && s) { const v = e.target.value.trim(); if (v) { s.name = v; save('sessions'); queue({ k: 'upd', t: 'sessions', id: s.id, patch: { name: v } }); } }
   if (id === 'e-date' && s && e.target.value) { s.date = e.target.value; save('sessions'); queue({ k: 'upd', t: 'sessions', id: s.id, patch: { date: s.date } }); }
-  if (id === 'gpx-rider' && db.gpx[ui.sid]) { db.gpx[ui.sid].riderId = e.target.value || null; save('gpx'); queue({ k: 'upd', t: 'sessions', id: ui.sid, patch: { gpx: db.gpx[ui.sid] } }); e.target.blur(); render(); }
-  if (id === 'gpx-file') readFile(e.target, (txt, name) => { let pts = []; try { pts = parseGpx(txt); } catch (err) {} if (pts.length < 2) { toast(t('gpx.unreadable')); return; } db.gpx[ui.sid] = { name, riderId: null, pts }; save('gpx'); queue({ k: 'upd', t: 'sessions', id: ui.sid, patch: { gpx: db.gpx[ui.sid] } }); render(); });
+  if (e.target.dataset && e.target.dataset.track) { const tr = tracksOf(ui.sid), tk = tr.find(x => x.id === e.target.dataset.track); if (tk) { tk.riderId = e.target.value || null; saveTracks(ui.sid, tr); } e.target.blur(); render(); return; }
+  if (id === 'gpx-file') { const f = e.target.files && e.target.files[0], sid = ui.sid; e.target.value = ''; if (!f) return;
+    readTrackFile(f).then(pts => { if (pts.length < 2) throw new Error('empty'); const tr = tracksOf(sid); tr.push({ id: uuid().slice(0, 8), name: f.name, riderId: null, pts }); saveTracks(sid, tr); render(); toast(t('gpx.imported', { n: pts.length })); }).catch(() => toast(t('gpx.unreadable'))); }
   if (id === 'csv-youth') readFile(e.target, txt => { const rows = csvRows(txt), have = new Set(db.riders.filter(r => r.active !== false).map(r => r.name.toLowerCase())); let n = 0; rows.forEach(r => { if (!have.has(r[0].toLowerCase())) { have.add(r[0].toLowerCase()); addRider(r[0], r[1] || ''); n++; } }); render(); toast(t('toast.ridersImported', { n, skipped: rows.length - n })); });
   if (id === 'csv-coach') readFile(e.target, async txt => { const rows = csvRows(txt).filter(r => /@/.test(r[1] || '')).map(r => ({ name: r[0], email: r[1].toLowerCase(), role: /admin/i.test(r[2] || '') ? 'admin' : 'coach' })); if (!rows.length) { toast(t('toast.coachCsvEmpty')); return; } const { error } = await sb.from('allowed_users').upsert(rows, { onConflict: 'email', ignoreDuplicates: true }); await pullCoaches(); render(); toast(error ? (isNetErr(error) ? t('toast.retryLater') : t('toast.refused', { msg: error.message })) : t('toast.coachesImported', { n: rows.length })); });
 });
@@ -636,5 +875,5 @@ function boot() {
 }
 const missing = SET.languages.filter(c => !(self.CHRONO_LANGS || {})[c]);
 if (missing.length) Promise.all(missing.map(c => loadScript('lang/' + encodeURIComponent(c) + '.js'))).then(boot); else boot();
-self.__chrono = { db, ui, A, F, runsOf, render, push, pull, t };   // handy for troubleshooting in the browser console
+self.__chrono = { db, ui, A, F, runsOf, render, push, pull, t, parseFit, parseGpx, course, detectRuns, tracksOf };   // handy for troubleshooting in the browser console
 })();

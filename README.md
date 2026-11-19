@@ -13,8 +13,9 @@ One coach stands at the start, others at split points or at the finish. A start 
 - Posts: **Start**, **Split**, **Finish**, and **Start/Finish** for laps on a circuit.
 - Staggered and group starts, several riders on course at once, lap or finish chosen after the stop.
 - Results per rider: every run, best, average and slowest time, split and lap details, `.csv` export.
+- Analysis: every run on one time axis, gap to the session best, progress during the session, sectors with the ideal time, laps, speeds.
 - Offline: taps are stored on the phone and synced later; phone clocks are aligned on the server clock.
-- GPX import after the session: distance, climb, speeds, and per-run speeds for the rider who carried the device.
+- GPS tracks (`.gpx` or `.fit`, also `.gz`) after the session: the start, split and finish points are found on one rider's track, the course is measured, and other riders' tracks are cut into runs automatically.
 - Installable on the home screen, several languages, your own name, logo and colours.
 
 ## How it is built
@@ -40,7 +41,7 @@ Riders' names and times are stored only in Supabase and are visible only to sign
 | `sw.js`, `manifest.webmanifest` | Offline use, updates and home-screen install |
 | `supabase/schema.sql` | Database set-up, run once in Supabase |
 | `.github/workflows/keepalive.yml` | Keeps the free Supabase project from pausing |
-| `docs/` | Screenshot for this README |
+| `docs/` | Screenshots for this README |
 
 ---
 
@@ -105,6 +106,32 @@ With two phones side by side:
 - [ ] Post "Start" on one phone, "Finish" on the other: a start makes the stopwatch run on both.
 - [ ] Turn on airplane mode on the start phone, start a rider, turn airplane mode off: the badge goes from "Offline · 1 waiting" to "Synced" and the rider appears running on the other phone.
 - [ ] On GitHub, **Actions > Keep Supabase awake > Run workflow**: the run turns green.
+
+---
+
+## GPS tracks and analysis
+
+Coaches time the runs by hand. A GPS track adds where those runs happened:
+
+1. After the session, open the session's **GPS** tab and import a track as `.gpx` or `.fit` (Garmin, Wahoo and most bike computers and watches export `.fit`; Strava's "Export original" gives one of the two, sometimes compressed as `.gz`, which also works).
+2. Choose who carried the device. The app looks at where that rider was at each timed start, split and finish, and takes the middle of those positions as the **start, split and finish points**. The course length and the length of each sector are measured along the track.
+3. With these points known:
+   - every rider gets **speeds** in the Analysis tab, from the course length and their times, even without a GPS;
+   - **other tracks** imported for the same session are cut into runs by their passages near the start and finish points (within 20 m). Runs that are not in the results yet are listed with an **Add** button, which records them as if the coaches had timed them.
+
+On a circuit (start and finish at the same place), lap length replaces course length and passages through the start line become laps.
+
+Accuracy depends on the device: a passage is placed within about one second with one point per second, which is the usual recording setting. The coaches' times stay the reference; GPS runs are only added when you tap **Add**.
+
+![Analysis tab](docs/screenshot-analysis.png)
+
+The **Analysis** tab shows, from the finished runs of the session:
+
+- **Every run**: each run as a dot on one time axis per rider, the best one filled, the average as a bar. Spread-out dots mean irregular riding.
+- **Gap to the session best**, with each rider's average speed when the course length is known.
+- **Progress during the session**: run times in order (higher is faster), the change from first to last run, and how much times vary.
+- **Sectors** (when splits were taken): each rider's best time per sector, the best sector times highlighted, the **ideal** time (sum of the best sectors) and the **gain** if they were put together in one run.
+- **Laps** (circuits): lap times in order, best lap and average.
 
 ---
 
