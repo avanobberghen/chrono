@@ -114,13 +114,15 @@ function runsOf(sid) {
     } else if (o) {
       o.evs.push(e.id);
       if (e.type === 'split') o.splits.push(e.ts); else if (e.type === 'lap') o.laps.push(e.ts);
-      else if (e.type === 'finish') { o.end = e.ts; delete open[e.rider_id]; }
+      // A finish whose target is the run's start marks an abandon (DNF): stored as a finish row, so no database change is needed.
+      else if (e.type === 'finish') { if (e.target) o.dnf = e.ts; else o.end = e.ts; delete open[e.rider_id]; }
     } else orph[e.rider_id] = (orph[e.rider_id] || 0) + 1;
   }
   ORPH = orph;
   return runs;
 }
-const active = r => R.find(x => x.riderId === r && x.end == null);
+const active = r => R.find(x => x.riderId === r && x.end == null && x.dnf == null);
+const dnfs = r => R.filter(x => x.riderId === r && x.dnf != null).length;
 const times = r => R.filter(x => x.riderId === r && x.end != null).map(x => x.end - x.start);
 const best = r => { const ts = times(r); return ts.length ? Math.min(...ts) : null; };
 
@@ -373,11 +375,13 @@ function chrono(s) {
       else sub = t('chrono.running');
       time = `<span class="time" data-start="${a.start}">${fmt(now() - a.start, 1)}</span>`;
       const pd = pend[r];
-      if (pd != null) { time = ''; sub = t('chrono.stoppedAt', { time: fmt(pd - a.start) }); btn = `<span class="duo"><button class="act lap" data-act="lap" data-id="${r}">${t('btn.lap')}</button><button class="act stop" data-act="fin" data-id="${r}">${t('btn.finish')}</button><button class="act x" data-act="nostop" data-id="${r}" aria-label="${t('chrono.cancelStop')}">✕</button></span>`; }
+      const dnfBtn = `<button class="act dnf" data-act="dnf" data-id="${r}" aria-label="${esc(t('chrono.dnfAria', { name: rname(r) }))}">${t('btn.dnf')}</button>`;
+      if (pd != null) { time = ''; sub = t('chrono.stoppedAt', { time: fmt(pd - a.start) }); btn = `<span class="duo"><button class="act lap" data-act="lap" data-id="${r}">${t('btn.lap')}</button><button class="act stop" data-act="fin" data-id="${r}">${t('btn.finish')}</button>${dnfBtn}<button class="act x" data-act="nostop" data-id="${r}" aria-label="${t('chrono.cancelStop')}">✕</button></span>`; }
       else if (p === 'inter') btn = `<button class="act split" data-act="split" data-id="${r}">${t('btn.split')}</button>`;
-      else if (p === 'finish' || p === 'both') btn = `<button class="act stop" data-act="stop" data-id="${r}">${t('btn.stop')}</button>`;
+      else if (p === 'finish' || p === 'both') btn = `<span class="duo">${dnfBtn}<button class="act stop" data-act="stop" data-id="${r}">${t('btn.stop')}</button></span>`;
     } else {
-      sub = ORPH[r] ? t('chrono.waitingStart') : ts.length ? t('chrono.runsBest', { runs: nRuns(ts.length), time: fmt(Math.min(...ts)) }) : t('chrono.notStarted');
+      const nd = dnfs(r);
+      sub = ORPH[r] ? t('chrono.waitingStart') : ts.length ? t('chrono.runsBest', { runs: nRuns(ts.length), time: fmt(Math.min(...ts)) }) + (nd ? ' · ' + t('chrono.dnfCount', { n: nd }) : '') : nd ? t('chrono.dnfCount', { n: nd }) : t('chrono.notStarted');
       if (ts.length) time = `<span class="time">${fmt(ts[ts.length - 1])}</span>`;
       if (canStart) btn = ui.multi ? `<button class="act pick" aria-pressed="${ui.sel.includes(r)}" data-act="pick" data-id="${r}" aria-label="${esc(t('chrono.select', { name: rname(r) }))}">${ui.sel.includes(r) ? '✓' : '+'}</button>` : `<button class="act go" data-act="start" data-id="${r}">${t('btn.start')}</button>`;
       else btn = `<button class="act late" data-act="${p === 'inter' ? 'split' : 'stop'}" data-id="${r}">${t(p === 'inter' ? 'btn.split' : 'btn.stop')}</button>`;
@@ -394,13 +398,14 @@ function chrono(s) {
 }
 
 function results(s) {
-  const ids = [...new Set([...s.rider_ids, ...R.map(r => r.riderId)])].filter(r => times(r).length && inCat(r)).sort((a, b) => best(a) - best(b)), chips = catChips(s);
+  const ids = [...new Set([...s.rider_ids, ...R.map(r => r.riderId)])].filter(r => (times(r).length || dnfs(r)) && inCat(r)).sort((a, b) => (best(a) ?? 1e15) - (best(b) ?? 1e15)), chips = catChips(s);
   if (!ids.length) return `${chips}<div class="hint">${t('results.none')}</div>`;
   return `${chips}<ul class="list">${ids.map((r, i) => {
-    const ts = times(r), avg = ts.reduce((a, b) => a + b, 0) / ts.length, runs = R.filter(x => x.riderId === r && x.end != null);
-    return `<li><details class="res"><summary><span class="pos">${i + 1}</span><div class="who"><b>${esc(rname(r))}</b><small>${[nRuns(ts.length), rcat(r) ? esc(rcat(r)) : '', t('results.details')].filter(Boolean).join(' · ')}</small></div>
-      <div class="stats"><span>${t('results.best')}</span><span>${t('results.avg')}</span><span>${t('results.max')}</span><b class="best">${fmt(Math.min(...ts))}</b><b>${fmt(avg)}</b><b>${fmt(Math.max(...ts))}</b></div></summary>
+    const ts = times(r), avg = ts.length ? ts.reduce((a, b) => a + b, 0) / ts.length : null, runs = R.filter(x => x.riderId === r && (x.end != null || x.dnf != null)), nd = dnfs(r);
+    return `<li><details class="res"><summary><span class="pos">${ts.length ? i + 1 : '–'}</span><div class="who"><b>${esc(rname(r))}</b><small>${[nRuns(ts.length), nd ? t('chrono.dnfCount', { n: nd }) : '', rcat(r) ? esc(rcat(r)) : '', t('results.details')].filter(Boolean).join(' · ')}</small></div>
+      ${ts.length ? `<div class="stats"><span>${t('results.best')}</span><span>${t('results.avg')}</span><span>${t('results.max')}</span><b class="best">${fmt(Math.min(...ts))}</b><b>${fmt(avg)}</b><b>${fmt(Math.max(...ts))}</b></div>` : `<b class="dnftag">${t('btn.dnf')}</b>`}</summary>
       <div class="runs">${runs.map((x, k) => { const ex = [...x.splits.map((v, j) => t('results.splitN', { i: j + 1, time: fmt(v - x.start) })), ...x.laps.map((v, j) => t('results.lapN', { i: j + 1, time: fmt(v - (x.laps[j - 1] ?? x.start)) }))];
+        if (x.dnf != null) return `<div><span>${k + 1}.</span><b class="dnftag">${t('btn.dnf')}</b><em>${t('results.dnfAfter', { time: fmt(x.dnf - x.start) })}${ex.length ? ' · ' + ex.join(' · ') : ''}</em><button data-act="delrun" data-id="${x.id}">${t('results.delete')}</button></div>`;
         return `<div><span>${k + 1}.</span><b>${fmt(x.end - x.start)}</b><em>${ex.join(' · ')}</em><button data-act="delrun" data-id="${x.id}">${t('results.delete')}</button></div>`; }).join('')}</div></details></li>`; }).join('')}</ul>
   <div class="tools"><button class="ghost" data-act="csv">${t('results.exportCsv')}</button><button class="ghost" data-act="copy">${t('results.copy')}</button></div>`;
 }
@@ -796,6 +801,7 @@ async function buildReport(s, opt) {
   const fin = R.filter(x => x.end != null && inCat(x.riderId)), byRider = r => fin.filter(x => x.riderId === r).sort((a, b) => a.start - b.start);
   const bestOf = r => Math.min(...byRider(r).map(x => x.end - x.start));
   const riders = [...new Set(fin.map(x => x.riderId))].sort((a, b) => bestOf(a) - bestOf(b));
+  const dnfRuns = R.filter(x => x.dnf != null && inCat(x.riderId)), dnfOf = r => dnfRuns.filter(x => x.riderId === r).length, dnfOnly = [...new Set(dnfRuns.map(x => x.riderId))].filter(r => !riders.includes(r));
   const tracks = tracksOf(s.id).filter(tk => tk.pts.length > 1);
   const MAPW = 300, MAPH = 172, mapImg = opt.map && tracks.length ? await mapImage(tracks, C, 1000, Math.round(1000 * MAPH / MAPW)) : null;
   const title = s.name + ' · ' + fDate(s.date) + (ui.cat ? ' · ' + ui.cat : '');
@@ -810,7 +816,11 @@ async function buildReport(s, opt) {
     const table = (cols, rows, o) => {
       o = o || {}; const x0 = o.x == null ? M : o.x, TW = o.w || CW, rh = 12.5, free = cols.filter(c => !c.w), fixed = cols.reduce((a, c) => a + (c.w || 0), 0);
       free.forEach(c => { c.w = (TW - fixed) / free.length; });
-      const head = () => { P.rect(x0, y, TW, rh, { fill: ZEBRA }); let x = x0; cols.forEach(c => { P.text(c.align === 'right' ? x + c.w - 3 : x + 3, y + 8.8, c.label, { size: 6.6, bold: true, color: MUTED, align: c.align, max: c.w - 4 }); x += c.w; }); y += rh; };
+      // Header labels wrap onto two lines
+      const wrap2 = (txt, w) => { const words = String(txt).split(' '); let l1 = ''; while (words.length && P.width((l1 ? l1 + ' ' : '') + words[0], 6.8, true) <= w) l1 += (l1 ? ' ' : '') + words.shift(); if (!l1) l1 = words.shift() || ''; return [l1, words.join(' ')]; };
+      const HH = 20, head = () => { P.rect(x0, y, TW, HH, { fill: ZEBRA }); let x = x0; cols.forEach(c => { const [l1, l2] = wrap2(c.label, c.w - 5), tx = c.align === 'right' ? x + c.w - 3 : x + 3;
+        if (l2) { P.text(tx, y + 8.2, l1, { size: 6.8, bold: true, color: MUTED, align: c.align, max: c.w - 4 }); P.text(tx, y + 16.2, l2, { size: 6.8, bold: true, color: MUTED, align: c.align, max: c.w - 4 }); }
+        else P.text(tx, y + 12.4, l1, { size: 6.8, bold: true, color: MUTED, align: c.align, max: c.w - 4 }); x += c.w; }); y += HH; };
       if (o.x == null) room(rh * 3); head();
       rows.forEach((r, i) => {
         if (o.x == null && room(rh)) head();
@@ -848,22 +858,26 @@ async function buildReport(s, opt) {
     const rc = [{ label: '#', w: 18, align: 'right', bold: true }, { label: t('csv.name'), bold: true }];
     if (showCat) rc.push({ label: t('cat.short'), w: 38, muted: true });
     if (catRank) rc.push({ label: t('export.catRank'), w: 36, align: 'right' });
-    rc.push({ label: t('export.runsShort'), w: 30, align: 'right' }, { label: t('results.best'), w: 46, align: 'right', bold: true }, { label: t('results.avg'), w: 46, align: 'right' }, { label: t('export.slowest'), w: 46, align: 'right', muted: true }, { label: t('export.gap'), w: 46, align: 'right' });
-    if (speed) rc.push({ label: 'km/h', w: 32, align: 'right' });
+    rc.push({ label: t('export.runsShort'), w: 34, align: 'right' });
+    if (dnfRuns.length) rc.push({ label: t('btn.dnf'), w: 26, align: 'right' });
+    rc.push({ label: t('results.best'), w: 46, align: 'right', bold: true }, { label: t('results.avg'), w: 46, align: 'right' }, { label: t('export.slowest'), w: 46, align: 'right', muted: true }, { label: t('export.gap'), w: 46, align: 'right' });
+    if (speed) rc.push({ label: t('export.kmh'), w: 40, align: 'right' });
     heading(t('export.ranking'), null, null, ui.cat ? t('export.rankingCat', { cat: ui.cat }) : catRank ? t('export.rankingHelp') : '');
     table(rc, riders.map((r, i) => {
       const v = byRider(r).map(x => x.end - x.start), b = Math.min(...v), row = [String(i + 1), rname(r)];
       if (showCat) row.push(rcat(r));
       if (catRank) row.push(rcat(r) ? String(riders.filter(x => rcat(x) === rcat(r)).indexOf(r) + 1) : '');
-      row.push(String(v.length), fmt(b), fmt(v.reduce((a, c) => a + c, 0) / v.length), fmt(Math.max(...v)), i ? '+' + sec(b - top) : '');
+      row.push(String(v.length));
+      if (dnfRuns.length) row.push(dnfOf(r) ? String(dnfOf(r)) : '');
+      row.push(fmt(b), fmt(v.reduce((a, c) => a + c, 0) / v.length), fmt(Math.max(...v)), i ? '+' + sec(b - top) : '');
       if (speed) { const d = runDist(byRider(r).find(x => x.end - x.start === b), C); row.push(d ? num(kmh(d, b), 1) : ''); }
       return row;
-    }), { highlight: i => i === 0 });
+    }).concat(dnfOnly.map(r => { const row = ['–', rname(r)]; if (showCat) row.push(rcat(r)); if (catRank) row.push(''); row.push('0', String(dnfOf(r)), t('btn.dnf')); return row; })), { highlight: i => i === 0 });
 
     // Map (a quarter of a page) with the course and GPS recordings next to it
     const gpsTable = (x, w) => {
       heading(t('export.trackData'), x, w);
-      table([{ label: t('export.track'), bold: true }, { label: t('gpx.distance'), w: 46, align: 'right' }, { label: t('gpx.duration'), w: 44, align: 'right' }, { label: t('gpx.climb'), w: 40, align: 'right' }],
+      table([{ label: t('export.rider'), bold: true }, { label: t('export.totalDistance'), w: 48, align: 'right' }, { label: t('export.totalDuration'), w: 46, align: 'right' }, { label: t('gpx.climb'), w: 40, align: 'right' }],
         tracks.map(tk => { const st = trackStats(tk.pts); return [tk.riderId ? rname(tk.riderId) : tk.name, metres(st.dist), st.dur ? fmtDur(st.dur) : '–', Math.round(st.up) + ' m']; }), { x: single ? x : null, w });
     };
     const courseInfo = (x, w) => {
@@ -917,13 +931,17 @@ async function buildReport(s, opt) {
         const cols = [{ label: t('csv.name'), bold: true }];
         if (multi) cols.push({ label: t('analysis.firstToLast'), w: 58, align: 'right' }, { label: t('analysis.consistency'), w: 52, align: 'right' });
         if (nS) cols.push(...keys.map(([a, b]) => ({ label: gateShort(a) + '–' + gateShort(b) + (C && C.seg[segKey(a, b)] ? ' ' + metres(C.seg[segKey(a, b)]) : ''), w: Math.min(62, (CW - 260) / keys.length), align: 'right' })), { label: t('analysis.ideal'), w: 46, align: 'right' }, { label: t('analysis.gain'), w: 44, align: 'right' });
-        heading(nS ? t('export.perRider') : t('analysis.progress'), null, null, nS ? t('export.perRiderHelp') : t('export.progressShort'));
+        heading(t('export.perRider'));
         table(cols, tab.map(({ r, v, sec: sv }) => {
           const row = [rname(r)];
           if (multi) { if (v.length > 1) { const d = v[v.length - 1] - v[0], m = v.reduce((a, b) => a + b, 0) / v.length; row.push((d > 0 ? '+' : d < 0 ? '-' : '') + sec(Math.abs(d)), '± ' + sec(Math.sqrt(v.reduce((a, b) => a + (b - m) ** 2, 0) / v.length))); } else row.push('–', '–'); }
           if (nS) { const ideal = sv.every(x => x != null) ? sv.reduce((a, b) => a + b, 0) : null, g = ideal != null ? bestOf(r) - ideal : null; row.push(...sv.map(x => x != null ? fmt(x) : '–'), ideal != null ? fmt(ideal) : '–', g > 0 ? '-' + sec(g) : g === 0 ? '0' : '–'); }
           return row;
         }), { boldCell: (i, j) => { const k = j - 1 - (multi ? 2 : 0); return nS && k >= 0 && k < keys.length && tab[i].sec[k] === colBest[k]; } });
+        [multi ? t('export.legendConsistency') : '', nS ? t('export.legendSectors') : ''].filter(Boolean).forEach(l => {   // legend, wrapped to the page width
+          const words = l.split(' '); let line = '';
+          words.forEach(w => { if (line && P.width(line + ' ' + w, 6.5, false) > CW) { P.text(M, y + 7, line, { size: 6.5, color: MUTED }); y += 8.5; line = w; } else line = line ? line + ' ' + w : w; });
+          if (line) { P.text(M, y + 7, line, { size: 6.5, color: MUTED }); y += 9; } });
       }
 
       // Laps (circuit)
@@ -938,10 +956,11 @@ async function buildReport(s, opt) {
     // Every run, in order
     if (opt.runs) {
       heading(t('export.allRuns'), null, null, t('export.allRunsHelp'));
-      riders.forEach(r => {
-        const rs = byRider(r), b = bestOf(r); room(12);
+      riders.concat(dnfOnly).forEach(r => {
+        const rs = fin.concat(dnfRuns).filter(x => x.riderId === r).sort((a, c) => a.start - c.start), b = riders.includes(r) ? bestOf(r) : null; room(12);
         let x = M + P.text(M, y + 8, rname(r), { size: 7.5, bold: true, max: 110 }) + 8;
         rs.forEach((v, k) => {
+          if (v.dnf != null) { const tk = (k + 1) + '. ' + t('btn.dnf'), w2 = P.width(tk, 7.5, false) + 10; if (x + w2 > M + CW) { x = M + 118; y += 10; room(10); } P.text(x, y + 8, tk, { size: 7.5, color: MUTED }); x += w2; return; }
           const tok = (k + 1) + '. ' + fmt(v.end - v.start) + (v.splits.length ? ' (' + v.splits.map(sp => fmt(sp - v.start)).join(', ') + ')' : v.laps.length ? ' (' + t('results.lapsCount', { n: v.laps.length + 1 }) + ')' : ''), bold = v.end - v.start === b, w = P.width(tok, 7.5, bold) + 10;
           if (x + w > M + CW) { x = M + 118; y += 10; room(10); }
           P.text(x, y + 8, tok, { size: 7.5, bold, color: bold ? ACC : INK }); x += w;
@@ -1191,6 +1210,8 @@ const A = {
   },
   lap(d) { const p = db.pend[ui.sid] || {}, ts = p[d.id], a = active(d.id); delete p[d.id]; save('pend'); if (ts == null || !a) return; ui.undo = [emit('lap', d.id, ts)]; toast(t('toast.lap', { i: a.laps.length + 1, name: rname(d.id), time: fmt(ts - (a.laps[a.laps.length - 1] ?? a.start)) }), undoBtn()); },
   fin(d) { const p = db.pend[ui.sid] || {}, ts = p[d.id], a = active(d.id); delete p[d.id]; save('pend'); if (ts == null || !a) return; ui.undo = [emit('finish', d.id, ts)]; toast(t('toast.finished', { name: rname(d.id), time: fmt(ts - a.start) }), undoBtn()); },
+  dnf(d) { const a = active(d.id); if (!a) return; const p = db.pend[ui.sid] || {}, ts = p[d.id] != null ? p[d.id] : tapTs(); delete p[d.id]; save('pend'); buzz();
+    ui.undo = [emit('finish', d.id, ts, a.id)]; toast(t('toast.dnf', { name: rname(d.id) }), undoBtn()); },
   nostop(d) { const p = db.pend[ui.sid] || {}; delete p[d.id]; save('pend'); },
   undo() { (ui.undo || []).forEach(e => emit('void', e.rider_id, now(), e.id)); ui.undo = null; document.querySelectorAll('.toast').forEach(e => e.remove()); },
   delrun(d) { const run = R.find(x => x.id === d.id); if (!run) return; const evs = (db.events[ui.sid] || []).filter(e => run.evs.includes(e.id)); evs.forEach(e => emit('void', e.rider_id, now(), e.id)); toast(t('toast.runDeleted')); },
@@ -1202,8 +1223,8 @@ const A = {
   csv() {
     const s = cur(), dec = (1.5).toLocaleString(LOC).charAt(1), sec = v => (v / 1000).toFixed(2).replace('.', dec), count = {};
     const rows = [[t('csv.name'), t('csv.run'), t('csv.startTime'), t('csv.time'), t('csv.seconds'), t('csv.splits'), t('csv.laps')].join(';')];
-    R.filter(x => x.end != null).forEach(x => { count[x.riderId] = (count[x.riderId] || 0) + 1;
-      rows.push([rname(x.riderId), count[x.riderId], new Date(x.start).toLocaleTimeString(LOC), fmt(x.end - x.start), sec(x.end - x.start), x.splits.map(v => sec(v - x.start)).join(' | '), x.laps.map((v, j) => sec(v - (x.laps[j - 1] ?? x.start))).join(' | ')].join(';')); });
+    R.filter(x => x.end != null || x.dnf != null).sort((a, b) => a.start - b.start).forEach(x => { count[x.riderId] = (count[x.riderId] || 0) + 1; const dn = x.dnf != null;
+      rows.push([rname(x.riderId), count[x.riderId], new Date(x.start).toLocaleTimeString(LOC), dn ? t('btn.dnf') : fmt(x.end - x.start), dn ? '' : sec(x.end - x.start), x.splits.map(v => sec(v - x.start)).join(' | '), x.laps.map((v, j) => sec(v - (x.laps[j - 1] ?? x.start))).join(' | ')].join(';')); });
     download('chrono-' + s.date + '-' + s.name.replace(/[^\p{L}\p{N}]+/gu, '-').slice(0, 40) + '.csv', rows.join('\r\n'));
   },
   addrider(d) { const s = cur(); if (!s.rider_ids.includes(d.id)) setRiders(s, [...s.rider_ids, d.id]); },

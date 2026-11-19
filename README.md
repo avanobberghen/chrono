@@ -11,7 +11,7 @@ One coach stands at the start, others at split points or at the finish. A start 
 - Sessions with a name and a date, a list of riders per session, and archiving.
 - A club list of riders (with groups and categories, e.g. age classes) and a list of allowed coaches, managed by admins, with `.csv` import.
 - Posts: **Start**, **Split**, **Finish**, and **Start/Finish** for laps on a circuit.
-- Staggered and group starts, several riders on course at once, lap or finish chosen after the stop.
+- Staggered and group starts, several riders on course at once, lap or finish chosen after the stop, DNF (did not finish).
 - Results per rider: every run, best, average and slowest time, split and lap details, `.csv` export.
 - Rankings and analysis for everyone or per category.
 - PDF export of a session (ranking, charts, sectors, every run) to share with the riders, made on the phone, even offline.
@@ -139,6 +139,10 @@ The **Analysis** tab shows, from the finished runs of the session:
 - **Laps** (circuits): lap times in order, best lap and average.
 
 ---
+
+## Abandons (DNF)
+
+At the **Finish** and **Start/Finish** posts, each rider on course has a **DNF** button (shown as *ABD* in French) next to Stop. At Start/Finish it is also offered with Lap and Finish after a Stop. The run is closed without a time: it does not count in times, averages or rankings, but appears as "DNF" in the results, the `.csv` export and the PDF (a DNF column in the ranking; riders with only DNFs are listed at the end). The **Undo** banner and the **Delete** button in Results work as for any run. No database change is needed.
 
 ## Categories
 

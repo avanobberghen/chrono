@@ -190,3 +190,9 @@ h2{font:700 12px/1 var(--display);letter-spacing:.09em;text-transform:uppercase;
 .check{display:flex;align-items:center;gap:10px;min-height:42px;font-weight:500}
 .check input{width:20px;height:20px;flex:none;accent-color:var(--accent)}
 .inline{flex-wrap:wrap}
+
+/* Abandon (DNF) */
+.act.dnf{background:none;border:1px solid var(--stop);color:var(--stop);min-width:48px;font-size:13px}
+.duo .act{min-width:46px}
+.dnftag{color:var(--stop);font-weight:700}
+.toast{width:max-content}
