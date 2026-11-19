@@ -9,10 +9,12 @@ One coach stands at the start, others at split points or at the finish. A start 
 ## Features
 
 - Sessions with a name and a date, a list of riders per session, and archiving.
-- A club list of riders (with groups) and a list of allowed coaches, managed by admins, with `.csv` import.
+- A club list of riders (with groups and categories, e.g. age classes) and a list of allowed coaches, managed by admins, with `.csv` import.
 - Posts: **Start**, **Split**, **Finish**, and **Start/Finish** for laps on a circuit.
 - Staggered and group starts, several riders on course at once, lap or finish chosen after the stop.
 - Results per rider: every run, best, average and slowest time, split and lap details, `.csv` export.
+- Rankings and analysis for everyone or per category.
+- PDF export of a session (ranking, charts, sectors, every run) to share with the riders, made on the phone, even offline.
 - Analysis: every run on one time axis, gap to the session best, progress during the session, sectors with the ideal time, laps, speeds.
 - Offline: taps are stored on the phone and synced later; phone clocks are aligned on the server clock.
 - GPS tracks (`.gpx` or `.fit`, also `.gz`) after the session: the start, split and finish points are found on one rider's track, the course is measured, and other riders' tracks are cut into runs automatically.
@@ -40,6 +42,7 @@ Riders' names and times are stored only in Supabase and are visible only to sign
 | `index.html`, `app.js`, `styles.css` | The app |
 | `sw.js`, `manifest.webmanifest` | Offline use, updates and home-screen install |
 | `supabase/schema.sql` | Database set-up, run once in Supabase |
+| `supabase/update-*.sql` | Database updates for installations made with an earlier version |
 | `.github/workflows/keepalive.yml` | Keeps the free Supabase project from pausing |
 | `docs/` | Screenshots for this README |
 
@@ -54,7 +57,7 @@ Everything is done in a web browser, ideally on a computer.
 1. Create an account at https://supabase.com, then **New project**. Pick a region close to your users and note the database password it suggests (the app does not use it).
 2. Open `supabase/schema.sql` from this repository and copy its whole content.
 3. In Supabase: **SQL Editor > New query**, paste it.
-4. **Still in the Supabase editor, just before running it**, go to the last lines and replace `admin@example.com` and `Admin Name` with your own email and name. You become the first admin. Do this only in Supabase, not in the file in your repository, so that your email never ends up on GitHub.
+4. **Still in the Supabase editor, just before running it**, go to the last lines and replace `admin@example.com` and `Admin Name` with your own email and name. You become the first admin. Do this only in Supabase, not in the file in your repository, so that your email never ends up on GitHub. (If you forget, no admin is created; edit and run the last lines again.)
 5. Click **Run**. The expected result is "Success. No rows returned".
 6. **Authentication > URL Configuration**:
    - Site URL: the address of your app, e.g. `https://chrono.example.org` (or `https://YOUR-USER.github.io/REPO/` without a custom domain).
@@ -89,11 +92,11 @@ The publishable key is designed to be visible in a web page. Never put the **sec
 ### Step 5: first sign-in and lists
 
 1. Open the app, tap **First sign-in**, enter the email you used in step 1 and choose a password.
-2. **Admin > Riders**: add riders one by one, or import a `.csv` with columns `name ; group` (group optional):
+2. **Admin > Riders**: add riders one by one, or import a `.csv` with columns `name ; group ; category` (group and category optional). Tap a rider's name to change it later.
    ```
-   name;group
-   First Last;Group 1
-   First Last;Group 2
+   name;group;category
+   First Last;Group 1;U13
+   First Last;Group 2;U15
    ```
 3. **Admin > Coaches**: add each coach, or import a `.csv` with `name ; email ; role` (role = `admin` or `coach`). Each coach then taps **First sign-in** with that address.
 4. On each phone, open the app and choose "Add to Home Screen" (browser menu on Android, Share button on iPhone).
@@ -121,6 +124,8 @@ Coaches time the runs by hand. A GPS track adds where those runs happened:
 
 On a circuit (start and finish at the same place), lap length replaces course length and passages through the start line become laps.
 
+**Map and navigation.** The GPS tab shows the tracks and the course points on a zoomable OpenStreetMap background (pinch or use the + and − buttons; **Enlarge map** gives it most of the screen). Tap a start, split or finish point, on the map or in the **Course points** list, to open it in Google Maps, Apple Maps, Waze, OpenStreetMap or another navigation app, or to copy its coordinates: handy to send a coach to the right spot next time. Without network, the app shows a simple drawing of the tracks instead; the points can still be opened in a navigation app.
+
 Accuracy depends on the device: a passage is placed within about one second with one point per second, which is the usual recording setting. The coaches' times stay the reference; GPS runs are only added when you tap **Add**.
 
 ![Analysis tab](docs/screenshot-analysis.png)
@@ -132,6 +137,31 @@ The **Analysis** tab shows, from the finished runs of the session:
 - **Progress during the session**: run times in order (higher is faster), the change from first to last run, and how much times vary.
 - **Sectors** (when splits were taken): each rider's best time per sector, the best sector times highlighted, the **ideal** time (sum of the best sectors) and the **gain** if they were put together in one run.
 - **Laps** (circuits): lap times in order, best lap and average.
+
+---
+
+## Categories
+
+Each rider can have a **category**, typically an age class such as `U11`, `U13`, `U15` (any short text works; the field suggests the ones already used). Set it when adding a rider, in the `.csv` import (third column), or later by tapping the rider's name in **Admin > Riders**.
+
+When riders of a session have categories:
+
+- **Results**, **Analysis** and **Export** show a row of buttons (*All*, *U13*, *U15*…): pick one to rank and analyse that category only.
+- With *All*, the Analysis tab adds a **By category** table (best and typical best time per category), and the PDF ranking gets a "rank in category" column.
+- In a session's rider list, "+ All of U13" adds every rider of that category at once.
+
+## Sharing results as a PDF
+
+The **Export** tab of a session creates a one- or several-page A4 PDF to send to the riders (or their parents) after training. It always contains the club logo and name, the session, a summary and the **ranking** (best, average, slowest time, gap, speed when a GPS track was imported). Tick what else to include:
+
+- **Analysis statistics**: every run on one time axis, gap to the best, progress during the session, sectors with the ideal time, laps, comparison by category.
+- **Map of the track**, with the course length, sector lengths and the start, split and finish points, on an OpenStreetMap background (plain background without network).
+- **Full GPS recording data**: for each imported `.fit` or `.gpx` file, total distance, duration, climb, descent, average and maximum speed of the whole recording.
+- **Run details**: every run of every rider, in order, with splits. Pick a category first to make one PDF per age class.
+
+**Share the PDF** opens the phone's share menu (WhatsApp, email, Messages…); **Download the PDF** saves it. The PDF is made on the phone itself, so this works without network too. It contains the riders' names and times: share it only with the group concerned.
+
+The **Data** part of the tab exports every run as `.csv` (for a spreadsheet) or copies the ranking as text.
 
 ---
 
@@ -148,6 +178,20 @@ Everything is in `settings.js`:
 - `dark` and `light`: the colours of each theme, as hex codes like `'#2A5684'`. Each colour is described in the file. Keep enough contrast between `bg` and `ink` (background and text) and between each button colour and `actInk` (text on timing buttons).
 
 Changes to `settings.js` reach the phones by themselves; see "Updating".
+
+### Background map
+
+The GPS tab uses the standard OpenStreetMap map by default. Its tile servers are run by volunteers: the app follows their [tile usage policy](https://operations.osmfoundation.org/policies/tiles/) (attribution shown on the map, normal browser use), which is fine for a club. For heavier use, or another style, add a `map` entry to `settings.js` with any "slippy map" tile server whose terms allow it, for example:
+
+```js
+  map: {
+    tiles: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',   // {z} zoom, {x} {y} tile position
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    maxZoom: 19
+  },
+```
+
+Keep the attribution the tile provider asks for.
 
 Three things live in other files because the phone reads them before the app starts:
 
@@ -184,6 +228,16 @@ The app installed on a phone keeps a copy of its files so it works without netwo
 There is also a **Check for updates** link at the bottom of the home screen, and the current version number is shown next to it.
 
 So there is nothing special to do on the phones: open the app, wait a few seconds, tap **Reload**. If the banner does not appear, closing the app completely and opening it again also works.
+
+### Database updates
+
+Some versions need a change in the database. They come with a file in `supabase/`, named after the version, to run once in **Supabase > SQL Editor** (paste, then **Run**; running it twice does no harm):
+
+| Version | File | What it adds |
+|---|---|---|
+| 1.4 | `supabase/update-1.4.sql` | Rider categories |
+
+Until it is run, the app keeps working but categories are not saved, and the Admin screen shows a reminder. New installations do not need these files: `schema.sql` already includes everything.
 
 ### What to do after changing files
 

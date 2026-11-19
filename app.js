@@ -13,6 +13,8 @@ const configured = /^https:\/\/[a-z0-9-]+\.supabase\.co$/i.test(CFG.SUPABASE_URL
 const sb = configured && self.supabase ? self.supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_KEY) : null;
 
 const SET = Object.assign({ appName: 'Chrono', clubName: '', logo: '', language: 'auto', languages: ['en'], mode: 'auto', dark: {}, light: {} }, self.CHRONO_SETTINGS || {});
+// Background map of the GPS tab (any "slippy map" tile server; see README).
+const MAP = Object.assign({ tiles: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors', maxZoom: 19 }, SET.map || {});
 const VERSION = self.CHRONO_VERSION || '';
 
 /* ---------- local storage ---------- */
@@ -80,13 +82,23 @@ const $ = id => document.getElementById(id);
 
 /* ---------- screen state ---------- */
 const ui = { view: db.me ? 'home' : 'login', sid: null, tab: 'chrono', poste: L.get('poste', 'start'), sheet: null, adminTab: 'youth',
-  multi: false, sel: [], showArch: false, det: {}, loginMode: 'in', undo: null, confirmDel: false, busy: false };
+  multi: false, sel: [], showArch: false, det: {}, cat: '', exp: { analysis: true, map: true, track: true, runs: true }, pdf: null, loginMode: 'in', undo: null, confirmDel: false, busy: false };
 const app = $('app');
 let R = [], ORPH = {};            // runs computed for the open session, taps received before their start
 let netOK = navigator.onLine !== false, authed = false, pushing = false;
 let holding = false, dirty = false, downTs = 0;
 
 const cur = () => db.sessions.find(s => s.id === ui.sid);
+const rcat = id => { const r = db.riders.find(r => r.id === id); return r && r.category ? r.category : ''; };
+const byNat = (a, b) => a.localeCompare(b, LOC, { numeric: true, sensitivity: 'base' });
+const catsOf = ids => [...new Set(ids.map(rcat).filter(Boolean))].sort(byNat);
+const inCat = id => !ui.cat || rcat(id) === ui.cat;
+// Category filter chips, shown in Results, Analysis and Export when riders have categories.
+function catChips(s) {
+  const cats = catsOf([...s.rider_ids, ...R.map(x => x.riderId)]); if (!cats.length) { ui.cat = ''; return ''; }
+  if (ui.cat && !cats.includes(ui.cat)) ui.cat = '';
+  return `<div class="chips" role="group" aria-label="${t('cat.filter')}">${['', ...cats].map(c => `<button class="chip ${ui.cat === c ? 'on' : ''}" aria-pressed="${ui.cat === c}" data-act="setcat" data-id="${esc(c)}">${c ? esc(c) : t('cat.all')}</button>`).join('')}</div>`;
+}
 const rname = id => { const r = db.riders.find(r => r.id === id); return r ? r.name : t('riders.unknown'); };
 const isAdmin = () => db.me && db.me.role === 'admin';
 
@@ -120,6 +132,7 @@ function emit(type, riderId, ts, target) {
   save('events', 'outbox'); push();
   return ev;
 }
+let noCatCol = false;              // true when the riders table has no category column yet
 const fresh = new Map();           // rows changed a moment ago: keep the local version for one minute
 function queue(op) { fresh.set(op.k === 'ins' ? op.row.id : op.id, Date.now()); db.outbox.push(op); save('outbox'); push(); }
 
@@ -169,9 +182,10 @@ async function pull() {
   if (!sb || !authed) return;
   try {
     const [r, s] = await Promise.all([
-      sb.from('riders').select('id,name,grp,active').order('name'),
+      sb.from('riders').select(noCatCol ? 'id,name,grp,active' : 'id,name,grp,active,category').order('name'),
       sb.from('sessions').select('id,name,date,archived,rider_ids').order('date', { ascending: false })
     ]);
+    if (r.error && r.error.code === '42703' && !noCatCol) { noCatCol = true; return pull(); }   // database not updated for categories yet (see README)
     const err = r.error || s.error;
     if (err) { if (isNetErr(err)) setNet(false); else if (isAuthErr(r.error ? r : s)) authed = false; paintNet(); return; }
     setNet(true);
@@ -314,21 +328,22 @@ const V = {
   },
   session() {
     const s = cur(), P = [['start', t('post.start')], ['inter', t('post.split')], ['finish', t('post.finish')], ['both', t('post.both')]];
-    const T = [['chrono', t('tab.chrono')], ['results', t('tab.results')], ['analysis', t('tab.analysis')], ['gpx', t('tab.gpx')]], [c, lab] = netLabel();
+    const T = [['chrono', t('tab.chrono')], ['results', t('tab.results')], ['analysis', t('tab.analysis')], ['gpx', t('tab.gpx')], ['export', t('tab.export')]], [c, lab] = netLabel();
     return `<header class="bar"><button class="back" data-act="home">‹ ${t('session.back')}</button><span style="flex:1"></span>
       <button class="net ${c}" id="net" data-act="sync"><i></i>${esc(lab)}</button></header>
     <header class="bar" style="padding-top:0"><h1>${esc(s.name)}<small>${fDate(s.date)} · ${nRiders(s.rider_ids.length)}${s.archived ? ' · ' + t('session.archived') : ''}</small></h1></header>
     <div class="tabs" role="tablist">${T.map(([k, l]) => `<button role="tab" aria-selected="${ui.tab === k}" data-act="tab" data-id="${k}">${l}</button>`).join('')}</div>
-    ${ui.tab === 'chrono' ? `<div class="label">${t('session.myPost')}</div><div class="seg">${P.map(([k, l]) => `<button aria-pressed="${ui.poste === k}" data-act="poste" data-id="${k}">${l}</button>`).join('')}</div>${chrono(s)}` : ui.tab === 'results' ? results(s) : ui.tab === 'analysis' ? analysis(s) : gpxView(s)}`;
+    ${ui.tab === 'chrono' ? `<div class="label">${t('session.myPost')}</div><div class="seg">${P.map(([k, l]) => `<button aria-pressed="${ui.poste === k}" data-act="poste" data-id="${k}">${l}</button>`).join('')}</div>${chrono(s)}` : ui.tab === 'results' ? results(s) : ui.tab === 'analysis' ? analysis(s) : ui.tab === 'export' ? exportView(s) : gpxView(s)}`;
   },
   admin() {
     const y = ui.adminTab === 'youth', riders = db.riders.filter(r => r.active !== false).sort((a, b) => a.name.localeCompare(b.name, LOC));
     return `<header class="bar"><button class="back" data-act="home">‹ ${t('session.back')}</button></header>
     <header class="bar" style="padding-top:0"><h1>${t('admin.title')}<small>${t('admin.subtitle')}</small></h1></header>
     <div class="tabs" role="tablist"><button role="tab" aria-selected="${y}" data-act="atab" data-id="youth">${t('admin.ridersTab', { n: riders.length })}</button><button role="tab" aria-selected="${!y}" data-act="atab" data-id="coach">${t('admin.coachesTab', { n: db.coaches.length })}</button></div>
-    ${y ? `<form class="inline" data-form="youth"><input id="new-youth" placeholder="${t('admin.fullName')}" autocomplete="off" required><input id="new-grp" placeholder="${t('admin.group')}" autocomplete="off" style="flex:0 1 110px"><button class="primary" type="submit">${t('common.add')}</button></form>
+    ${y ? `<form class="inline" data-form="youth"><input id="new-youth" placeholder="${t('admin.fullName')}" autocomplete="off" required><input id="new-grp" placeholder="${t('admin.group')}" autocomplete="off" list="grp-list" style="flex:0 1 96px"><input id="new-cat" placeholder="${t('cat.label')}" autocomplete="off" list="cat-list" style="flex:0 1 84px"><button class="primary" type="submit">${t('common.add')}</button></form>
       <div class="tools"><label class="ghost file">${t('admin.importCsv')}<input type="file" id="csv-youth" accept=".csv,text/csv,text/plain"></label></div><div class="note">${t('admin.ridersCsvHelp')}</div>
-      <ul class="list">${riders.map(r => `<li class="line"><span class="grow">${esc(r.name)}<small>${esc(r.grp || t('admin.noGroup'))}</small></span><button data-act="delyouth" data-id="${r.id}">${t('common.remove')}</button></li>`).join('') || `<li class="hint">${t('admin.noRiders')}</li>`}</ul>`
+      ${noCatCol ? `<div class="hint">${t('cat.dbMissing')}</div>` : ''}${lists()}
+      <ul class="list">${riders.map(r => `<li class="line"><button class="grow linkrow" data-act="editrider" data-id="${r.id}">${esc(r.name)}<small>${esc([r.grp || t('admin.noGroup'), r.category].filter(Boolean).join(' · '))}</small></button><button data-act="delyouth" data-id="${r.id}">${t('common.remove')}</button></li>`).join('') || `<li class="hint">${t('admin.noRiders')}</li>`}</ul>`
     : `<form class="stack" data-form="coach"><div class="field">${t('admin.name')}<input id="c-name" autocomplete="off" required></div><div class="field">${t('login.email')}<input id="c-mail" type="email" autocomplete="off" required></div>
       <div class="field">${t('admin.role')}<select id="c-role"><option value="coach">${t('role.coach')}</option><option value="admin">${t('role.admin')}</option></select></div><button class="primary" type="submit">${t('admin.addCoach')}</button></form>
       <div class="tools"><label class="ghost file">${t('admin.importCsv')}<input type="file" id="csv-coach" accept=".csv,text/csv,text/plain"></label></div><div class="note">${t('admin.coachesCsvHelp')}</div>
@@ -379,11 +394,11 @@ function chrono(s) {
 }
 
 function results(s) {
-  const ids = [...new Set([...s.rider_ids, ...R.map(r => r.riderId)])].filter(r => times(r).length).sort((a, b) => best(a) - best(b));
-  if (!ids.length) return `<div class="hint">${t('results.none')}</div>`;
-  return `<ul class="list">${ids.map((r, i) => {
+  const ids = [...new Set([...s.rider_ids, ...R.map(r => r.riderId)])].filter(r => times(r).length && inCat(r)).sort((a, b) => best(a) - best(b)), chips = catChips(s);
+  if (!ids.length) return `${chips}<div class="hint">${t('results.none')}</div>`;
+  return `${chips}<ul class="list">${ids.map((r, i) => {
     const ts = times(r), avg = ts.reduce((a, b) => a + b, 0) / ts.length, runs = R.filter(x => x.riderId === r && x.end != null);
-    return `<li><details class="res"><summary><span class="pos">${i + 1}</span><div class="who"><b>${esc(rname(r))}</b><small>${nRuns(ts.length)} · ${t('results.details')}</small></div>
+    return `<li><details class="res"><summary><span class="pos">${i + 1}</span><div class="who"><b>${esc(rname(r))}</b><small>${[nRuns(ts.length), rcat(r) ? esc(rcat(r)) : '', t('results.details')].filter(Boolean).join(' · ')}</small></div>
       <div class="stats"><span>${t('results.best')}</span><span>${t('results.avg')}</span><span>${t('results.max')}</span><b class="best">${fmt(Math.min(...ts))}</b><b>${fmt(avg)}</b><b>${fmt(Math.max(...ts))}</b></div></summary>
       <div class="runs">${runs.map((x, k) => { const ex = [...x.splits.map((v, j) => t('results.splitN', { i: j + 1, time: fmt(v - x.start) })), ...x.laps.map((v, j) => t('results.lapN', { i: j + 1, time: fmt(v - (x.laps[j - 1] ?? x.start)) }))];
         return `<div><span>${k + 1}.</span><b>${fmt(x.end - x.start)}</b><em>${ex.join(' · ')}</em><button data-act="delrun" data-id="${x.id}">${t('results.delete')}</button></div>`; }).join('')}</div></details></li>`; }).join('')}</ul>
@@ -562,7 +577,7 @@ function mapSvg(tracks, C) {
   const P = p => [(ox + (X(p) - x0) * sc).toFixed(1), (oy - (Y(p) - y0) * sc).toFixed(1)];
   const lines = tracks.map(tk => { const ref = C && C.refs.includes(tk.riderId); return `<polyline points="${trackStats(tk.pts).xy.map(p => P(p).join(',')).join(' ')}" fill="none" stroke="${ref ? 'var(--accent)' : 'var(--muted)'}" stroke-width="${ref ? 3 : 2}" stroke-opacity="${ref ? 1 : .6}" stroke-linejoin="round" stroke-linecap="round"><title>${esc(tk.name)}</title></polyline>`; }).join('');
   const gates = C ? C.gates.map(g => { const [x, y] = P([g.lat, g.lon]), col = g.key === 'start' ? 'var(--go)' : g.key === 'finish' ? 'var(--stop)' : 'var(--split)';
-    return `<g><circle cx="${x}" cy="${y}" r="7" fill="${col}" stroke="var(--surface)" stroke-width="2"><title>${esc(gateLabel(g.key))}</title></circle><text x="${x}" y="${(+y - 11).toFixed(1)}" text-anchor="middle" class="gtext">${esc(gateShort(g.key))}</text></g>`; }).join('') : '';
+    return `<g data-act="nav" data-id="${g.key}" class="gtap"><circle cx="${x}" cy="${y}" r="7" fill="${col}" stroke="var(--surface)" stroke-width="2"><title>${esc(gateLabel(g.key))}</title></circle><text x="${x}" y="${(+y - 11).toFixed(1)}" text-anchor="middle" class="gtext">${esc(gateShort(g.key))}</text></g>`; }).join('') : '';
   return `<div class="plot"><svg viewBox="0 0 320 200" role="img" aria-label="${t('gpx.trackAria')}">${lines}${gates}</svg></div>`;
 }
 function speedSvg(st) {
@@ -602,7 +617,375 @@ function gpxView(s) {
       ${detRows ? `<h2>${t('gpx.detectedRuns')}</h2><div class="note">${t(tk.riderId ? 'gpx.detectedHelp' : 'gpx.detectedNoRider')}</div><div class="runs">${detRows}</div>` : ''}
       <div class="tools"><button class="ghost" data-act="trkdel" data-id="${esc(tk.id)}">${t('gpx.remove')}</button></div></div></details>`;
   }).join('');
-  return `${mapSvg(tracks, C)}${head}<h2>${t('gpx.tracks', { n: tracks.length })}</h2><ul class="list"><li>${cards}</li></ul><div class="tools">${importBtn('ghost')}</div>`;
+  const pointsList = C ? `<h2>${t('gpx.coursePoints')}</h2><ul class="list">${C.gates.map(g => `<li class="line gate"><i class="dot ${g.key === 'start' ? 'go' : g.key === 'finish' ? 'stop' : 'split'}"></i><span class="grow">${esc(gateLabel(g.key))}<small>${g.lat.toFixed(5)}, ${g.lon.toFixed(5)}</small></span><button class="navbtn" data-act="nav" data-id="${g.key}">${t('gpx.navigate')}</button></li>`).join('')}</ul>` : '';
+  return `<div id="map-slot" class="mapslot ${ui.mapBig ? 'big' : ''}">${mapSvg(tracks, C)}</div><div class="tools maptools"><button class="ghost" data-act="mapbig">${t(ui.mapBig ? 'gpx.mapSmall' : 'gpx.mapBig')}</button></div>${head}${pointsList}<h2>${t('gpx.tracks', { n: tracks.length })}</h2><ul class="list"><li>${cards}</li></ul><div class="tools">${importBtn('ghost')}</div>`;
+}
+
+/* Interactive map: Leaflet with map tiles. The map object is kept between renders and moved into
+   the new #map-slot each time, so zoom and position survive. Without network the drawn map above stays. */
+// Leaflet's global is read as self.L: inside this file, L is the local storage helper.
+const LF = new Proxy({}, { get: (_, k) => self.L[k] });
+const LEAFLET = 'https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/';
+let leafletP = null, lmap = null, lbox = null, lgroup = null, lsig = '';
+function loadLeaflet() {
+  if (self.L && self.L.map) return Promise.resolve(true);
+  if (!leafletP) { const css = document.createElement('link'); css.rel = 'stylesheet'; css.href = LEAFLET + 'leaflet.css'; document.head.appendChild(css);
+    leafletP = loadScript(LEAFLET + 'leaflet.js').then(() => !!(self.L && self.L.map)); leafletP.then(ok => { if (!ok) leafletP = null; }); }
+  return leafletP;
+}
+function placeMap(s) {
+  if (!$('map-slot')) return;
+  const attach = () => {
+    const slot = $('map-slot'); if (!slot || !self.L || !self.L.map) return;
+    if (!lbox) { lbox = document.createElement('div'); lbox.className = 'lmap'; }
+    slot.innerHTML = ''; slot.appendChild(lbox); slot.classList.add('live');
+    if (!lmap) {
+      lmap = LF.map(lbox, { zoomControl: true });
+      LF.tileLayer(MAP.tiles, { maxZoom: MAP.maxZoom, attribution: MAP.attribution }).addTo(lmap);
+      lgroup = LF.layerGroup().addTo(lmap);
+    }
+    lmap.invalidateSize();
+    const tracks = tracksOf(s.id), C = course(s.id);
+    const sig = [s.id, LANG, ui.mapBig, tracks.map(tk => tk.id + (tk.riderId || '') + tk.pts.length).join(','), C ? C.gates.map(g => g.key + g.lat.toFixed(6) + g.lon.toFixed(6)).join(',') : ''].join('|');
+    if (sig !== lsig) { lsig = sig; drawMap(tracks, C); }
+  };
+  if (self.L && self.L.map) attach(); else loadLeaflet().then(ok => { if (ok && ui.view === 'session' && ui.tab === 'gpx') attach(); });
+}
+function drawMap(tracks, C) {
+  lgroup.clearLayers();
+  const css = getComputedStyle(document.documentElement), col = n => css.getPropertyValue('--' + n).trim() || '#4A90E2', all = [];
+  tracks.forEach(tk => { const ref = C && C.refs.includes(tk.riderId), ll = tk.pts.map(p => [p[0], p[1]]); all.push(...ll);
+    LF.polyline(ll, { color: ref ? col('accent') : col('muted'), weight: ref ? 5 : 3, opacity: ref ? .95 : .75 }).bindTooltip(esc(tk.name + (tk.riderId ? ' · ' + rname(tk.riderId) : ''))).addTo(lgroup); });
+  if (C) C.gates.forEach(g => { all.push([g.lat, g.lon]);
+    LF.circleMarker([g.lat, g.lon], { radius: 11, color: '#fff', weight: 3, fillColor: col(g.key === 'start' ? 'go' : g.key === 'finish' ? 'stop' : 'split'), fillOpacity: 1 })
+      .bindTooltip(esc(gateShort(g.key)), { permanent: true, direction: 'top', offset: [0, -12], className: 'gtip' })
+      .on('click', () => { ui.nav = g.key; ui.sheet = 'nav'; render(); }).addTo(lgroup); });
+  if (all.length) lmap.fitBounds(LF.latLngBounds(all), { padding: [28, 28], maxZoom: 18 });
+}
+const isIOS = () => /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+// Links that open a point in a navigation app. Each app opens if installed, otherwise its web page.
+function navLinks(g) {
+  const ll = g.lat.toFixed(6) + ',' + g.lon.toFixed(6), label = encodeURIComponent(gateLabel(g.key) + ((cur() || {}).name ? ' · ' + cur().name : ''));
+  const L2 = [
+    ['google', 'https://www.google.com/maps/dir/?api=1&destination=' + ll],
+    ['apple', 'https://maps.apple.com/?daddr=' + ll + '&q=' + label],
+    ['waze', 'https://waze.com/ul?ll=' + ll + '&navigate=yes'],
+    ['osm', 'https://www.openstreetmap.org/?mlat=' + g.lat.toFixed(6) + '&mlon=' + g.lon.toFixed(6) + '#map=17/' + g.lat.toFixed(6) + '/' + g.lon.toFixed(6)]
+  ];
+  if (isIOS()) L2.unshift(L2.splice(1, 1)[0]); else L2.push(['other', 'geo:' + ll + '?q=' + ll + '(' + label + ')']);
+  return L2;
+}
+
+/* ---------- PDF export ----------
+   A small PDF writer (A4, Helvetica, lines, circles, one JPEG logo), so the export works offline
+   without any library. Text is encoded in WinAnsi (Western European characters). */
+// Character widths (1/1000 em) of Helvetica and Helvetica-Bold for codes 32–255 (WinAnsi), from Adobe's AFM files.
+const HELV = [278,278,355,556,556,889,667,191,333,333,389,584,278,333,278,278,556,556,556,556,556,556,556,556,556,556,278,278,584,584,584,556,1015,667,667,722,722,667,611,778,722,278,500,667,556,833,722,778,667,778,722,667,611,722,667,944,667,667,611,278,278,278,469,556,333,556,556,500,556,556,278,556,556,222,222,500,222,833,556,556,556,556,333,500,278,556,500,722,500,500,500,334,260,334,584,556,556,556,222,556,333,1000,556,556,333,1000,667,333,1000,556,611,556,556,222,222,333,333,350,556,1000,333,1000,500,333,944,556,500,667,278,333,556,556,556,556,260,556,333,737,370,556,584,333,737,333,400,584,556,556,333,556,537,278,333,556,365,556,834,834,834,611,667,667,667,667,667,667,1000,722,667,667,667,667,278,278,278,278,722,722,778,778,778,778,778,584,778,722,722,722,722,667,667,611,556,556,556,556,556,556,889,500,556,556,556,556,278,278,278,278,556,556,556,556,556,556,556,584,611,556,556,556,556,500,556,500];
+const HELVB = [278,333,474,556,556,889,722,238,333,333,389,584,278,333,278,278,556,556,556,556,556,556,556,556,556,556,333,333,584,584,584,611,975,722,722,722,722,667,611,778,722,278,556,722,611,833,722,778,667,778,722,667,611,722,667,944,667,667,611,333,278,333,584,556,333,556,611,556,611,556,333,611,611,278,278,556,278,889,611,611,611,611,389,556,333,611,556,778,556,556,500,389,280,389,584,556,556,556,278,556,500,1000,556,556,333,1000,667,333,1000,556,611,556,556,278,278,500,500,350,556,1000,333,1000,556,333,944,556,500,667,278,333,556,556,556,556,280,556,333,737,370,556,584,333,737,333,400,584,556,556,333,611,556,278,333,556,365,556,834,834,834,611,722,722,722,722,722,722,1000,722,667,667,667,667,278,278,278,278,722,722,778,778,778,778,778,584,778,722,722,722,722,667,667,611,556,556,556,556,556,556,889,556,556,556,556,556,278,278,278,278,611,611,611,611,611,611,611,584,611,611,611,611,611,556,611,556];
+const CP1252 = { 0x20AC: 128, 0x201A: 130, 0x0192: 131, 0x201E: 132, 0x2026: 133, 0x2020: 134, 0x2021: 135, 0x02C6: 136, 0x2030: 137, 0x0160: 138, 0x2039: 139, 0x0152: 140, 0x017D: 142, 0x2018: 145, 0x2019: 146, 0x201C: 147, 0x201D: 148, 0x2022: 149, 0x2013: 150, 0x2014: 151, 0x02DC: 152, 0x2122: 153, 0x0161: 154, 0x203A: 155, 0x0153: 156, 0x017E: 158, 0x0178: 159, 0x2212: 45, 0x2192: 150, 0x202F: 32 };
+const winAnsi = str => { const out = []; for (const ch of String(str)) { const u = ch.codePointAt(0); out.push(u < 128 ? u : (u >= 160 && u <= 255) ? u : CP1252[u] || 63); } return out; };
+function makePdf(title) {
+  const W = 595.28, H = 841.89, pages = [], images = [], f = v => (+v).toFixed(2);
+  let ops = null;
+  const rgb = hex => { let h = String(hex || '#000').replace('#', ''); if (h.length === 3) h = h.split('').map(c => c + c).join(''); return [0, 2, 4].map(i => (parseInt(h.slice(i, i + 2), 16) / 255).toFixed(3)).join(' '); };
+  const P = {
+    W, H, pages,
+    page() { ops = []; pages.push(ops); },
+    goto(i) { ops = pages[i]; },
+    width(s, size, bold) { const T = bold ? HELVB : HELV; return winAnsi(s).reduce((a, c) => a + (c >= 32 ? T[c - 32] : 556), 0) * size / 1000; },
+    fit(s, size, bold, max) { s = String(s); if (P.width(s, size, bold) <= max) return s; while (s.length > 1 && P.width(s + '…', size, bold) > max) s = s.slice(0, -1); return s + '…'; },
+    text(x, y, s, o) {
+      o = o || {}; const size = o.size || 10, bold = !!o.bold; s = String(s); if (o.max) s = P.fit(s, size, bold, o.max);
+      const w = P.width(s, size, bold), xx = o.align === 'right' ? x - w : o.align === 'center' ? x - w / 2 : x;
+      ops.push(`BT /${bold ? 'F2' : 'F1'} ${size} Tf ${rgb(o.color || '#14202E')} rg ${f(xx)} ${f(H - y)} Td <${winAnsi(s).map(c => c.toString(16).padStart(2, '0')).join('')}> Tj ET`);
+      return w;
+    },
+    rect(x, y, w, h, o) { o = o || {}; ops.push(`q ${o.fill ? rgb(o.fill) + ' rg ' : ''}${o.stroke ? rgb(o.stroke) + ' RG ' + f(o.lw || .5) + ' w ' : ''}${f(x)} ${f(H - y - h)} ${f(w)} ${f(h)} re ${o.fill && o.stroke ? 'B' : o.fill ? 'f' : 'S'} Q`); },
+    line(x1, y1, x2, y2, o) { o = o || {}; ops.push(`q ${rgb(o.color || '#999999')} RG ${f(o.lw || .5)} w ${o.dash ? '[' + o.dash.join(' ') + '] 0 d ' : ''}${f(x1)} ${f(H - y1)} m ${f(x2)} ${f(H - y2)} l S Q`); },
+    circle(x, y, r, o) {
+      o = o || {}; const k = .5523 * r, c = H - y;
+      ops.push(`q ${o.fill ? rgb(o.fill) + ' rg ' : ''}${o.stroke ? rgb(o.stroke) + ' RG ' + f(o.lw || 1) + ' w ' : ''}${f(x + r)} ${f(c)} m ${f(x + r)} ${f(c + k)} ${f(x + k)} ${f(c + r)} ${f(x)} ${f(c + r)} c ${f(x - k)} ${f(c + r)} ${f(x - r)} ${f(c + k)} ${f(x - r)} ${f(c)} c ${f(x - r)} ${f(c - k)} ${f(x - k)} ${f(c - r)} ${f(x)} ${f(c - r)} c ${f(x + k)} ${f(c - r)} ${f(x + r)} ${f(c - k)} ${f(x + r)} ${f(c)} c ${o.fill && o.stroke ? 'B' : o.fill ? 'f' : 'S'} Q`);
+    },
+    image(img, x, y, w, h) { let i = images.indexOf(img); if (i < 0) i = images.push(img) - 1; ops.push(`q ${f(w)} 0 0 ${f(h)} ${f(x)} ${f(H - y - h)} cm /Im${i} Do Q`); },
+    build() {
+      const enc = new TextEncoder(), chunks = [], offs = []; let len = 0;
+      const put = x => { const b = typeof x === 'string' ? enc.encode(x) : x; chunks.push(b); len += b.length; };
+      const obj = (n, body) => { offs[n] = len; put(n + ' 0 obj\n'); body(); put('\nendobj\n'); };
+      const first = 5 + images.length, info = first + pages.length * 2;
+      put('%PDF-1.4\n');
+      obj(1, () => put('<< /Type /Catalog /Pages 2 0 R >>'));
+      obj(2, () => put(`<< /Type /Pages /Count ${pages.length} /Kids [${pages.map((_, i) => (first + i * 2) + ' 0 R').join(' ')}] >>`));
+      obj(3, () => put('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>'));
+      obj(4, () => put('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>'));
+      images.forEach((im, i) => obj(5 + i, () => { put(`<< /Type /XObject /Subtype /Image /Width ${im.w} /Height ${im.h} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${im.bytes.length} >>\nstream\n`); put(im.bytes); put('\nendstream'); }));
+      const xo = images.map((_, i) => `/Im${i} ${5 + i} 0 R`).join(' ');
+      pages.forEach((p, i) => {
+        obj(first + i * 2, () => put(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${f(W)} ${f(H)}] /Resources << /Font << /F1 3 0 R /F2 4 0 R >>${xo ? ' /XObject << ' + xo + ' >>' : ''} >> /Contents ${first + i * 2 + 1} 0 R >>`));
+        obj(first + i * 2 + 1, () => { const b = enc.encode(p.join('\n')); put(`<< /Length ${b.length} >>\nstream\n`); put(b); put('\nendstream'); });
+      });
+      const u16 = s => '<FEFF' + [...String(s)].map(c => { const u = c.codePointAt(0); return u > 0xFFFF ? '' : u.toString(16).padStart(4, '0'); }).join('') + '>';
+      obj(info, () => put(`<< /Title ${u16(title)} /Producer ${u16(SET.appName)} >>`));
+      const xref = len, n = info + 1;
+      put(`xref\n0 ${n}\n0000000000 65535 f \n` + Array.from({ length: n - 1 }, (_, i) => String(offs[i + 1]).padStart(10, '0') + ' 00000 n \n').join(''));
+      put(`trailer\n<< /Size ${n} /Root 1 0 R /Info ${info} 0 R >>\nstartxref\n${xref}\n%%EOF\n`);
+      const out = new Uint8Array(len); let o = 0; chunks.forEach(c => { out.set(c, o); o += c.length; }); return out;
+    }
+  };
+  return P;
+}
+// The logo as a JPEG on a white background, for the PDF header.
+let logoJpeg = null;
+function loadLogo() {
+  if (logoJpeg) return logoJpeg;
+  logoJpeg = new Promise(res => {
+    if (!SET.logo || typeof Image === 'undefined') return res(null);
+    const img = new Image();
+    img.onload = () => { try { const k = Math.min(1, 240 / Math.max(img.naturalWidth, img.naturalHeight)), w = Math.max(1, Math.round(img.naturalWidth * k)), h = Math.max(1, Math.round(img.naturalHeight * k)), cv = document.createElement('canvas'); cv.width = w; cv.height = h; const cx = cv.getContext('2d'); cx.fillStyle = '#fff'; cx.fillRect(0, 0, w, h); cx.drawImage(img, 0, 0, w, h);
+      cv.toBlob(b => b ? b.arrayBuffer().then(a => res({ bytes: new Uint8Array(a), w, h })) : res(null), 'image/jpeg', .92); } catch (e) { res(null); } };
+    img.onerror = () => res(null); img.src = SET.logo;
+  });
+  return logoJpeg;
+}
+
+const fmtDur = ms => { const m = Math.round(ms / 60000); return m >= 60 ? Math.floor(m / 60) + ' h ' + String(m % 60).padStart(2, '0') : m + ' min'; };
+/* Map picture for the PDF: map tiles (when the network allows) with the tracks and course points
+   drawn on top, as one JPEG. Without network the tracks are drawn on a plain background. */
+function mapImage(tracks, C, W, H) {
+  return new Promise(resolve => {
+    const pts = tracks.flatMap(tk => trackStats(tk.pts).xy).concat(C ? C.gates.map(g => [g.lat, g.lon]) : []); if (!pts.length) return resolve(null);
+    const X = (lon, z) => (lon + 180) / 360 * 256 * 2 ** z, Y = (lat, z) => { const sn = Math.sin(lat * RAD); return (.5 - Math.log((1 + sn) / (1 - sn)) / (4 * Math.PI)) * 256 * 2 ** z; };
+    const la = pts.map(p => p[0]), lo = pts.map(p => p[1]), la0 = Math.min(...la), la1 = Math.max(...la), lo0 = Math.min(...lo), lo1 = Math.max(...lo);
+    let z = Math.min(17, MAP.maxZoom || 17);
+    while (z > 1 && (X(lo1, z) - X(lo0, z) > W * .86 || Y(la0, z) - Y(la1, z) > H * .82)) z--;
+    const ox = (X(lo0, z) + X(lo1, z)) / 2 - W / 2, oy = (Y(la0, z) + Y(la1, z)) / 2 - H / 2;
+    const cv = document.createElement('canvas'); cv.width = W; cv.height = H; const cx = cv.getContext('2d');
+    cx.fillStyle = '#EEF2F6'; cx.fillRect(0, 0, W, H);
+    const css = getComputedStyle(document.documentElement), pal = Object.assign({ accent: '#2A5684', muted: '#55687F', go: '#16794A', stop: '#C33A2F', split: '#8A6A00' }, SET.light || {});
+    const overlay = () => {
+      tracks.forEach(tk => { const ref = C && C.refs.includes(tk.riderId); cx.beginPath(); trackStats(tk.pts).xy.forEach((p, i) => { const px = X(p[1], z) - ox, py = Y(p[0], z) - oy; i ? cx.lineTo(px, py) : cx.moveTo(px, py); });
+        cx.lineJoin = 'round'; cx.lineCap = 'round'; cx.strokeStyle = '#FFFFFF'; cx.lineWidth = ref ? 9 : 7; cx.globalAlpha = .85; cx.stroke(); cx.globalAlpha = 1; cx.strokeStyle = ref ? pal.accent : pal.muted; cx.lineWidth = ref ? 5 : 3.5; cx.stroke(); });
+      if (C) C.gates.forEach(g => { const px = X(g.lon, z) - ox, py = Y(g.lat, z) - oy, lab = gateShort(g.key);
+        cx.beginPath(); cx.arc(px, py, 13, 0, 7); cx.fillStyle = g.key === 'start' ? pal.go : g.key === 'finish' ? pal.stop : pal.split; cx.fill(); cx.lineWidth = 4; cx.strokeStyle = '#FFFFFF'; cx.stroke();
+        cx.font = 'bold 24px Helvetica, Arial, sans-serif'; cx.textAlign = 'center'; cx.lineWidth = 6; cx.strokeStyle = '#FFFFFF'; cx.strokeText(lab, px, py - 22); cx.fillStyle = '#14202E'; cx.fillText(lab, px, py - 22); });
+    };
+    const finish = tiles => { overlay(); try { cv.toBlob(b => b ? b.arrayBuffer().then(a => resolve({ bytes: new Uint8Array(a), w: W, h: H, tiles })) : resolve(null), 'image/jpeg', .86); } catch (e) { resolve(null); } };
+    if (!MAP.tiles || navigator.onLine === false) return finish(false);
+    const jobs = [], n = 2 ** z;
+    for (let tx = Math.floor(ox / 256); tx <= Math.floor((ox + W) / 256); tx++) for (let ty = Math.floor(oy / 256); ty <= Math.floor((oy + H) / 256); ty++) {
+      if (ty < 0 || ty >= n) continue;
+      const url = MAP.tiles.replace('{z}', z).replace('{x}', ((tx % n) + n) % n).replace('{y}', ty).replace('{s}', 'a').replace('{r}', '');
+      jobs.push(new Promise(ok => { const im = new Image(); im.crossOrigin = 'anonymous'; const tm = setTimeout(() => ok(null), 8000);
+        im.onload = () => { clearTimeout(tm); ok({ im, x: tx * 256 - ox, y: ty * 256 - oy }); }; im.onerror = () => { clearTimeout(tm); ok(null); }; im.src = url; }));
+    }
+    Promise.all(jobs).then(list => {
+      const got = list.filter(Boolean); got.forEach(tl => cx.drawImage(tl.im, Math.round(tl.x), Math.round(tl.y)));
+      if (got.length) { cx.fillStyle = 'rgba(255,255,255,.18)'; cx.fillRect(0, 0, W, H); }
+      try { cx.getImageData(0, 0, 1, 1); } catch (e) { cx.fillStyle = '#EEF2F6'; cx.fillRect(0, 0, W, H); return finish(false); }   // tiles without CORS: plain background
+      finish(got.length > 0);
+    });
+  });
+}
+
+// Session report: everything is computed from the same runs as the Results and Analysis tabs.
+async function buildReport(s, opt) {
+  const logo = await loadLogo(), C = course(s.id), pal = Object.assign({ accent: '#2A5684', go: '#16794A', stop: '#C33A2F' }, SET.light || {});
+  const INK = '#14202E', MUTED = '#5B6B80', LINE = '#D5DEE8', ZEBRA = '#F3F6FA', ACC = pal.accent;
+  const fin = R.filter(x => x.end != null && inCat(x.riderId)), byRider = r => fin.filter(x => x.riderId === r).sort((a, b) => a.start - b.start);
+  const bestOf = r => Math.min(...byRider(r).map(x => x.end - x.start));
+  const riders = [...new Set(fin.map(x => x.riderId))].sort((a, b) => bestOf(a) - bestOf(b));
+  const title = s.name + ' · ' + fDate(s.date) + (ui.cat ? ' · ' + ui.cat : '');
+  const P = makePdf(title), M = 40, CW = P.W - 2 * M, BOTTOM = P.H - 48; let y = M;
+  const sec = v => num(v / 1000, 2) + ' s';
+  const newPage = () => { P.page(); y = M; };
+  const room = h => { if (y + h > BOTTOM) { newPage(); return true; } return false; };
+  const heading = (txt, sub) => { room(46); y += 14; P.text(M, y, txt.toUpperCase(), { size: 9, bold: true, color: ACC }); y += 6; P.line(M, y, M + CW, y, { color: ACC, lw: 1 }); y += 4; if (sub) { y += 10; P.text(M, y, sub, { size: 8, color: MUTED, max: CW }); y += 2; } y += 6; };
+  // Table with repeated header row on each page. cols: [{label, w, align, bold}], rows: arrays of strings
+  const table = (cols, rows, o) => {
+    o = o || {}; const rh = 16, flex = cols.find(c => !c.w), fixed = cols.reduce((a, c) => a + (c.w || 0), 0); if (flex) flex.w = CW - fixed;
+    const head = () => { P.rect(M, y, CW, rh, { fill: ZEBRA }); let x = M; cols.forEach(c => { P.text(c.align === 'right' ? x + c.w - 4 : x + 4, y + 11, c.label, { size: 7.5, bold: true, color: MUTED, align: c.align, max: c.w - 6 }); x += c.w; }); y += rh; };
+    room(rh * 2); head();
+    rows.forEach((r, i) => {
+      if (room(rh)) head();
+      if (o.highlight && o.highlight(i)) P.rect(M, y, CW, rh, { fill: '#EAF1FA' });
+      let x = M; cols.forEach((c, j) => { const v = r[j]; if (v != null && v !== '') P.text(c.align === 'right' ? x + c.w - 4 : x + 4, y + 11, v, { size: 9, bold: c.bold || (o.boldCell && o.boldCell(i, j)), color: c.muted ? MUTED : INK, align: c.align, max: c.w - 6 }); x += c.w; });
+      y += rh; P.line(M, y, M + CW, y, { color: LINE, lw: .4 });
+    });
+    y += 4;
+  };
+
+  newPage();
+  // Header
+  let tx = M;
+  if (logo) { const h = 52, w = h * logo.w / logo.h; P.image(logo, M, y, w, h); tx = M + w + 14; }
+  P.text(tx, y + 18, s.name, { size: 18, bold: true, max: M + CW - tx });
+  P.text(tx, y + 34, [SET.clubName, fDate(s.date), ui.cat ? t('cat.label') + ' ' + ui.cat : ''].filter(Boolean).join(' · '), { size: 10, color: MUTED, max: M + CW - tx });
+  const segN = C ? Object.keys(C.seg).filter(k => k !== 'total').length : 0;
+  if (C) P.text(tx, y + 48, [C.total ? t('gpx.courseLength') + ' ' + metres(C.total) : '', C.lap ? t('gpx.lapLength') + ' ' + metres(C.lap) : '', segN > 1 ? t('export.sectorsN', { n: segN }) : ''].filter(Boolean).join(' · '), { size: 9, color: MUTED, max: M + CW - tx });
+  y += 66;
+  if (!fin.length) { P.text(M, y + 10, t('analysis.none'), { size: 10, color: MUTED, max: CW }); }
+  else {
+    // Summary tiles
+    const top = bestOf(riders[0]), bests = riders.map(bestOf), bestRun = byRider(riders[0]).find(x => x.end - x.start === top), bestSpeed = C ? kmh(runDist(bestRun, C), top) : null;
+    const tiles = [[t('analysis.runs'), String(fin.length), nRiders(riders.length)], [t('analysis.sessionBest'), fmt(top), rname(riders[0])], [t('analysis.medianBest'), fmt(med(bests)), t('analysis.medianBestSub')],
+      bestSpeed ? [t('analysis.topSpeed'), num(bestSpeed, 1) + ' km/h', t('analysis.onBestRun')] : [t('analysis.spread'), '+' + sec(Math.max(...bests) - top), t('analysis.spreadSub')]];
+    const tw = (CW - 24) / 4; tiles.forEach((tl, i) => { const x = M + i * (tw + 8); P.rect(x, y, tw, 50, { stroke: LINE, lw: .8 }); P.text(x + 8, y + 13, tl[0], { size: 7.5, color: MUTED, max: tw - 14 }); P.text(x + 8, y + 31, tl[1], { size: 15, bold: true, max: tw - 14 }); P.text(x + 8, y + 43, tl[2], { size: 7.5, color: MUTED, max: tw - 14 }); });
+    y += 62;
+
+    // Ranking
+    const cats = catsOf(riders), showCat = cats.length > 0, catRank = showCat && !ui.cat;
+    const cols = [{ label: '#', w: 22, align: 'right', bold: true }, { label: t('csv.name'), bold: true }];
+    if (showCat) cols.push({ label: t('cat.short'), w: 44, muted: true });
+    if (catRank) cols.push({ label: t('export.catRank'), w: 40, align: 'right' });
+    cols.push({ label: t('export.runsShort'), w: 36, align: 'right' }, { label: t('results.best'), w: 52, align: 'right', bold: true }, { label: t('results.avg'), w: 52, align: 'right' }, { label: t('export.slowest'), w: 52, align: 'right', muted: true }, { label: t('export.gap'), w: 50, align: 'right' });
+    if (C && (C.total || C.lap)) cols.push({ label: 'km/h', w: 38, align: 'right' });
+    const rows = riders.map((r, i) => {
+      const v = byRider(r).map(x => x.end - x.start), b = Math.min(...v), avg = v.reduce((a, c) => a + c, 0) / v.length, row = [String(i + 1), rname(r)];
+      if (showCat) row.push(rcat(r));
+      if (catRank) row.push(rcat(r) ? String(riders.filter(x => rcat(x) === rcat(r)).indexOf(r) + 1) : '');
+      row.push(String(v.length), fmt(b), fmt(avg), fmt(Math.max(...v)), i ? '+' + sec(b - bestOf(riders[0])) : '');
+      if (C && (C.total || C.lap)) { const d = runDist(byRider(r).find(x => x.end - x.start === b), C); row.push(d ? num(kmh(d, b), 1) : ''); }
+      return row;
+    });
+    heading(t('export.ranking'), ui.cat ? t('export.rankingCat', { cat: ui.cat }) : catRank ? t('export.rankingHelp') : '');
+    table(cols, rows, { highlight: i => i === 0 });
+
+    // Map of the tracks, with the course points and lengths
+    const tracks = tracksOf(s.id).filter(tk => tk.pts.length > 1);
+    if (opt.map && tracks.length) {
+      const img = await mapImage(tracks, C, 1100, 640);
+      if (img) {
+        const h = CW * img.h / img.w;
+        heading(t('export.map'), [C && C.total ? t('gpx.courseLength') + ' ' + metres(C.total) : '', C && C.lap ? t('gpx.lapLength') + ' ' + metres(C.lap) : '', ...(C ? Object.keys(C.seg).filter(k => k !== 'total').map(k => { const [a, b] = k.split('>'); return gateShort(a) + '–' + gateShort(b) + ' ' + metres(C.seg[k]); }) : [])].filter(Boolean).join(' · ') || t('export.mapNoCourse'));
+        room(h + 18); P.image(img, M, y, CW, h); P.rect(M, y, CW, h, { stroke: LINE, lw: .6 }); y += h + 10;
+        P.text(M, y, [C ? t('export.mapLegend') : '', img.tiles ? '© OpenStreetMap contributors' : ''].filter(Boolean).join('   ·   '), { size: 7, color: MUTED, max: CW }); y += 8;
+      }
+    }
+
+    // Data of the whole recording of each GPS device (.fit / .gpx)
+    if (opt.track && tracks.length) {
+      heading(t('export.trackData'), t('export.trackDataHelp'));
+      table([{ label: t('export.track'), bold: true }, { label: t('gpx.carriedBy'), w: 92 }, { label: t('gpx.distance'), w: 56, align: 'right' }, { label: t('gpx.duration'), w: 52, align: 'right' }, { label: t('gpx.climb'), w: 50, align: 'right' }, { label: t('gpx.descent'), w: 50, align: 'right' }, { label: t('gpx.avgSpeed'), w: 52, align: 'right' }, { label: t('gpx.maxSpeed'), w: 52, align: 'right' }],
+        tracks.map(tk => { const st = trackStats(tk.pts); return [tk.name, tk.riderId ? rname(tk.riderId) : '–', metres(st.dist), st.dur ? fmtDur(st.dur) : '–', Math.round(st.up) + ' m', Math.round(st.down) + ' m', st.dur ? num(st.vavg, 1) + ' km/h' : '–', st.vmax ? num(st.vmax, 1) + ' km/h' : '–']; }));
+    }
+
+    // Every run, as dots on one time axis per rider
+    if (opt.analysis) {
+      const allT = fin.map(x => x.end - x.start), lo = Math.min(...allT), hi = Math.max(...allT), pad = Math.max(500, (hi - lo) * .06), a0 = lo - pad, a1 = hi + pad;
+      const LX = M + 110, RW = CW - 118, X = v => LX + (v - a0) / (a1 - a0) * RW, rowH = 15, ticks = [0, 1, 2, 3, 4].map(i => a0 + (a1 - a0) * (i + .5) / 5);
+      const chartH = riders.length * rowH + 64; if (chartH < BOTTOM - M) room(chartH);   // keep the chart on one page when it fits
+      heading(t('analysis.everyRun'), t('export.everyRunHelp'));
+      let top0 = y;
+      const axis = () => { ticks.forEach(v => { P.line(X(v), top0 - 4, X(v), y, { color: LINE, lw: .4 }); P.text(X(v), y + 10, fmt(v, 1), { size: 7.5, color: MUTED, align: 'center' }); }); y += 16; };
+      riders.forEach(r => {
+        if (y + rowH + 16 > BOTTOM) { axis(); newPage(); top0 = y + 4; }
+        const cy = y + 8, rs = byRider(r), b = bestOf(r), avg = rs.reduce((a, x) => a + x.end - x.start, 0) / rs.length;
+        P.text(LX - 8, cy + 3, rname(r), { size: 8.5, align: 'right', max: 104 });
+        P.line(LX, cy, LX + RW, cy, { color: LINE, lw: .4, dash: [1, 2] });
+        if (rs.length > 1) P.line(X(avg), cy - 5, X(avg), cy + 5, { color: MUTED, lw: 1.5 });
+        rs.forEach(x => { const v = x.end - x.start; if (v === b) P.circle(X(v), cy, 3.6, { fill: ACC }); else P.circle(X(v), cy, 3, { fill: '#FFFFFF', stroke: ACC, lw: 1.2 }); });
+        y += rowH;
+      });
+      axis();
+    }
+
+    if (opt.analysis) {
+      // Gap to the session best, as bars from the best time
+      const gapMax = Math.max(...bests) - top || 1, LXg = M + 110, GW = CW - 110 - 76;
+      heading(t('analysis.gap'));
+      riders.forEach((r, i) => { room(14); const g = bestOf(r) - top, cy = y + 7;
+        P.text(LXg - 8, cy + 3, rname(r), { size: 8.5, align: 'right', max: 104 }); P.line(LXg, y + 1, LXg, y + 13, { color: MUTED, lw: .8 });
+        if (g) P.rect(LXg, y + 3, Math.max(1.5, g / gapMax * GW), 8, { fill: ACC });
+        P.text(M + CW, cy + 3, g ? '+' + sec(g) : t('analysis.leader'), { size: 8.5, bold: !g, align: 'right' }); y += 14; });
+      y += 4;
+      // Progress during the session
+      const multi = riders.filter(r => byRider(r).length > 1);
+      if (multi.length) {
+        heading(t('analysis.progress'), t('export.progressHelp'));
+        table([{ label: t('csv.name'), bold: true }, { label: t('export.runsShort'), w: 40, align: 'right' }, { label: t('export.first'), w: 60, align: 'right' }, { label: t('export.last'), w: 60, align: 'right' }, { label: t('analysis.firstToLast'), w: 70, align: 'right' }, { label: t('analysis.consistency'), w: 64, align: 'right' }],
+          multi.map(r => { const v = byRider(r).map(x => x.end - x.start), d = v[v.length - 1] - v[0], m = v.reduce((a, b) => a + b, 0) / v.length, sd = Math.sqrt(v.reduce((a, b) => a + (b - m) ** 2, 0) / v.length);
+            return [rname(r), String(v.length), fmt(v[0]), fmt(v[v.length - 1]), (d > 0 ? '+' : d < 0 ? '-' : '') + sec(Math.abs(d)), '± ' + sec(sd)]; }));
+      }
+      // Laps (circuit)
+      const lapR = riders.filter(r => byRider(r).some(x => x.laps.length));
+      if (lapR.length) {
+        heading(t('analysis.laps'));
+        table([{ label: t('csv.name'), bold: true }, { label: t('export.lapsN'), w: 50, align: 'right' }, { label: t('analysis.bestLap'), w: 64, align: 'right', bold: true }, { label: t('results.avg'), w: 64, align: 'right' }, ...(C && C.lap ? [{ label: 'km/h', w: 44, align: 'right' }] : [])],
+          lapR.map(r => { const L2 = byRider(r).flatMap(x => [...x.laps, x.end].map((v, j, arr) => v - (j ? arr[j - 1] : x.start))), b = Math.min(...L2); return [rname(r), String(L2.length), fmt(b), fmt(L2.reduce((a, c) => a + c, 0) / L2.length), ...(C && C.lap ? [num(kmh(C.lap, b), 1)] : [])]; }));
+      }
+    }
+
+    // Sectors
+    const nS = Math.max(0, ...fin.filter(x => !x.laps.length).map(x => x.splits.length));
+    if (opt.analysis && nS) {
+      const keys = [...Array(nS + 1).keys()].map(i => [i ? 'split' + i : 'start', i < nS ? 'split' + (i + 1) : 'finish']);
+      const secOf = (x, i) => { const b = i ? x.splits[i - 1] : x.start, e = i < nS ? x.splits[i] : x.end; return b != null && e != null && (i < nS ? x.splits.length > i : x.splits.length === nS) ? e - b : null; };
+      const tab = riders.map(r => ({ r, sec: keys.map((_, i) => { const v = byRider(r).filter(x => !x.laps.length).map(x => secOf(x, i)).filter(v => v != null); return v.length ? Math.min(...v) : null; }) }));
+      const colBest = keys.map((_, i) => Math.min(...tab.map(x => x.sec[i]).filter(v => v != null)));
+      const sw = Math.min(64, (CW - 120 - 110) / keys.length);
+      const cols = [{ label: t('csv.name'), bold: true }, ...keys.map(([a, b]) => ({ label: gateShort(a) + ' – ' + gateShort(b) + (C && C.seg[segKey(a, b)] ? ' (' + metres(C.seg[segKey(a, b)]) + ')' : ''), w: sw, align: 'right' })), { label: t('analysis.ideal'), w: 56, align: 'right' }, { label: t('analysis.gain'), w: 54, align: 'right' }];
+      const rows = tab.map(({ r, sec: v }) => { const ideal = v.every(x => x != null) ? v.reduce((a, b) => a + b, 0) : null, g = ideal != null ? bestOf(r) - ideal : null; return [rname(r), ...v.map(x => x != null ? fmt(x) : '–'), ideal != null ? fmt(ideal) : '–', g > 0 ? '-' + sec(g) : g === 0 ? '0' : '–']; });
+      heading(t('analysis.sectors'), t('export.sectorsHelp'));
+      table(cols, rows, { boldCell: (i, j) => j >= 1 && j <= keys.length && tab[i].sec[j - 1] === colBest[j - 1] });
+    }
+
+    // Categories
+    const catsAll = ui.cat ? [] : catsOf(riders);
+    if (opt.analysis && catsAll.length > 1) {
+      heading(t('analysis.byCategory'));
+      table([{ label: t('cat.label'), bold: true }, { label: t('analysis.ridersCol'), w: 60, align: 'right' }, { label: t('results.best'), w: 60, align: 'right', bold: true }, { label: t('export.bestBy'), w: 150 }, { label: t('analysis.medianBest'), w: 90, align: 'right' }],
+        catsAll.map(c => { const rs = riders.filter(r => rcat(r) === c), b = rs.map(bestOf); return [c, String(rs.length), fmt(b[0]), rname(rs[0]), fmt(med(b))]; }));
+    }
+
+    // All runs, in order
+    if (opt.runs) {
+      heading(t('export.allRuns'), t('export.allRunsHelp'));
+      riders.forEach(r => {
+        const rs = byRider(r), b = bestOf(r); room(28); P.text(M, y + 10, rname(r) + (rcat(r) && !ui.cat ? '  ·  ' + rcat(r) : ''), { size: 9, bold: true, max: CW }); y += 14;
+        let x = M + 10;
+        rs.forEach((v, k) => {
+          const tok = (k + 1) + '. ' + fmt(v.end - v.start) + (v.splits.length ? ' (' + v.splits.map(sp => fmt(sp - v.start)).join(', ') + ')' : v.laps.length ? ' (' + t('results.lapsCount', { n: v.laps.length + 1 }) + ')' : ''), bold = v.end - v.start === b, w = P.width(tok, 8.5, bold) + 14;
+          if (x + w > M + CW) { x = M + 10; y += 12; room(12); }
+          P.text(x, y + 9, tok, { size: 8.5, bold, color: bold ? ACC : INK }); x += w;
+        });
+        y += 18;
+      });
+    }
+    room(24); y += 8;
+    P.text(M, y + 8, t('analysis.basedOn', { runs: nRuns(fin.length) }) + ' ' + (C ? t('analysis.speedFrom') : ''), { size: 7.5, color: MUTED, max: CW });
+  }
+  // Footer on every page
+  const stamp = new Date().toLocaleString(LOC, { dateStyle: 'medium', timeStyle: 'short' });
+  P.pages.forEach((_, i) => { P.goto(i); P.line(M, P.H - 34, M + CW, P.H - 34, { color: LINE, lw: .5 }); P.text(M, P.H - 22, [SET.clubName, SET.appName].filter(Boolean).join(' · '), { size: 7.5, color: MUTED }); P.text(P.W / 2, P.H - 22, t('export.generated', { date: stamp }), { size: 7.5, color: MUTED, align: 'center' }); P.text(M + CW, P.H - 22, t('export.page', { i: i + 1, n: P.pages.length }), { size: 7.5, color: MUTED, align: 'right' }); });
+  const slug = (s.date + '-' + s.name + (ui.cat ? '-' + ui.cat : '')).normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60);
+  return { bytes: P.build(), name: slug + '.pdf' };
+}
+
+/* Export tab. The PDF is prepared as soon as the tab opens and again after each change, so that
+   "Share" can hand it to the phone straight away (phones only allow sharing right after a tap). */
+const expSig = s => [s.id, ui.cat, JSON.stringify(ui.exp), LANG, (db.events[s.id] || []).length, tracksOf(s.id).map(tk => tk.id + tk.riderId).join(','), db.riders.length].join('|');
+function exportView(s) {
+  const fin = R.filter(x => x.end != null && inCat(x.riderId)), nS = Math.max(0, ...fin.map(x => x.splits.length)), cats = catsOf(fin.map(x => x.riderId));
+  const o = ui.exp, ready = ui.pdf && ui.pdf.sig === expSig(s), hasTracks = tracksOf(s.id).length > 0;
+  const box = (k, label, show) => show ? `<label class="check"><input type="checkbox" data-opt="${k}" ${o[k] ? 'checked' : ''}> ${label}</label>` : '';
+  const canShare = !!(navigator.canShare && self.File);
+  return `${catChips(s)}<div class="hint">${t('export.intro')}</div>
+    <div class="checks"><label class="check"><input type="checkbox" checked disabled> ${t('export.ranking')}</label>${box('analysis', t('export.optAnalysis'), true)}${box('map', t('export.optMap'), hasTracks)}${box('track', t('export.optTrack'), hasTracks)}${box('runs', t('export.allRuns'), true)}</div>
+    ${hasTracks ? '' : `<div class="note">${t('export.noTrack')}</div>`}
+    <div class="tools">${canShare ? `<button class="primary" data-act="pdfshare" ${ready ? '' : 'disabled'}>${ready ? t('export.share') : t('export.preparing')}</button>` : ''}<button class="${canShare ? 'ghost' : 'primary'}" data-act="pdfdown" ${ready ? '' : 'disabled'}>${ready ? t('export.download') : t('export.preparing')}</button></div>
+    ${ready ? `<div class="note">${esc(ui.pdf.name)} · ${num(ui.pdf.bytes.length / 1024, 0)} ko</div>` : ''}
+    <div class="note">${t('export.privacy')}</div>
+    <h2>${t('export.data')}</h2><div class="tools"><button class="ghost" data-act="csv">${t('results.exportCsv')}</button><button class="ghost" data-act="copy">${t('results.copy')}</button></div>`;
+}
+let pdfBusy = '';
+function prepareExport(s) {
+  const sig = expSig(s); if ((ui.pdf && ui.pdf.sig === sig) || pdfBusy === sig) return;
+  pdfBusy = sig;
+  buildReport(s, ui.exp).then(r => { pdfBusy = ''; if (expSig(s) === sig) { ui.pdf = Object.assign(r, { sig }); if (ui.view === 'session' && ui.tab === 'export') render(true); } })
+    .catch(e => { pdfBusy = ''; console.error(e); toast(t('export.failed')); });
+}
+function saveBlob(name, blob) {
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000);
 }
 
 /* ---------- Analysis ---------- */
@@ -613,8 +996,8 @@ function sparkSvg(vals, bestI, w, h) {
   return `<svg class="spark" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" aria-hidden="true"><polyline points="${vals.map((v, i) => X(i).toFixed(1) + ',' + Y(v).toFixed(1)).join(' ')}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>${vals.map((v, i) => `<circle cx="${X(i).toFixed(1)}" cy="${Y(v).toFixed(1)}" r="${i === bestI ? 4 : 2.5}" fill="${i === bestI ? 'var(--accent)' : 'var(--surface)'}" stroke="var(--accent)" stroke-width="1.5"><title>${t('analysis.runN', { i: i + 1 })} : ${fmt(v)}</title></circle>`).join('')}</svg>`;
 }
 function analysis(s) {
-  const fin = R.filter(x => x.end != null);
-  if (!fin.length) return `<div class="hint">${t('analysis.none')}</div>`;
+  const chips = catChips(s), finAll = R.filter(x => x.end != null), fin = finAll.filter(x => inCat(x.riderId));
+  if (!fin.length) return `${chips}<div class="hint">${t('analysis.none')}</div>`;
   const C = course(s.id), riders = [...new Set(fin.map(x => x.riderId))];
   const byRider = r => fin.filter(x => x.riderId === r).sort((a, b) => a.start - b.start);
   const bestOf = r => Math.min(...byRider(r).map(x => x.end - x.start));
@@ -622,7 +1005,7 @@ function analysis(s) {
   const top = bestOf(riders[0]), allT = fin.map(x => x.end - x.start), bests = riders.map(bestOf);
   const tile = (l, v, sub) => `<div class="kpi"><span>${l}</span><b>${v}</b>${sub ? `<small>${sub}</small>` : ''}</div>`;
   const bestRun = byRider(riders[0]).find(x => x.end - x.start === top), bestSpeed = C ? kmh(runDist(bestRun, C), top) : null;
-  let h = `<div class="kpis k4">${tile(t('analysis.runs'), fin.length, nRiders(riders.length))}${tile(t('analysis.sessionBest'), fmt(top), esc(rname(riders[0])))}${tile(t('analysis.medianBest'), fmt(med(bests)), t('analysis.medianBestSub'))}${bestSpeed ? tile(t('analysis.topSpeed'), num(bestSpeed, 1) + ' km/h', t('analysis.onBestRun')) : tile(t('analysis.spread'), '+' + num((Math.max(...bests) - top) / 1000, 2) + ' s', t('analysis.spreadSub'))}</div>`;
+  let h = chips + `<div class="kpis k4">${tile(t('analysis.runs'), fin.length, nRiders(riders.length))}${tile(t('analysis.sessionBest'), fmt(top), esc(rname(riders[0])))}${tile(t('analysis.medianBest'), fmt(med(bests)), t('analysis.medianBestSub'))}${bestSpeed ? tile(t('analysis.topSpeed'), num(bestSpeed, 1) + ' km/h', t('analysis.onBestRun')) : tile(t('analysis.spread'), '+' + num((Math.max(...bests) - top) / 1000, 2) + ' s', t('analysis.spreadSub'))}</div>`;
 
   // 1. Every run on one time axis
   const lo = Math.min(...allT), hi = Math.max(...allT), pad = Math.max(500, (hi - lo) * .06), a0 = lo - pad, a1 = hi + pad, W = 320, LX = 92, RW = W - LX - 8, rowH = 24;
@@ -666,6 +1049,15 @@ function analysis(s) {
     const L2 = byRider(r).flatMap(x => [...x.laps, x.end].map((v, j, arr) => v - (j ? arr[j - 1] : x.start))), b = Math.min(...L2), avg = L2.reduce((a, c) => a + c, 0) / L2.length;
     return `<tr><td>${esc(rname(r))}</td><td>${sparkSvg(L2, L2.indexOf(b), 96, 28)}</td><td>${fmt(b)}${C && C.lap ? `<small>${num(kmh(C.lap, b), 1)} km/h</small>` : ''}</td><td>${fmt(avg)}</td></tr>`; }).join('')}</tbody></table>`;
 
+  // 6. Comparison between categories (age classes)
+  const cats = ui.cat ? [] : catsOf(finAll.map(x => x.riderId));
+  if (cats.length > 1) {
+    const rows = cats.map(c => { const rs = [...new Set(finAll.filter(x => rcat(x.riderId) === c).map(x => x.riderId))], b = rs.map(r => Math.min(...finAll.filter(x => x.riderId === r).map(x => x.end - x.start))).sort((a, b) => a - b);
+      return { c, n: rs.length, best: b[0], who: rs.find(r => Math.min(...finAll.filter(x => x.riderId === r).map(x => x.end - x.start)) === b[0]), med: med(b) }; });
+    const hasNone = finAll.some(x => !rcat(x.riderId));
+    h += `<h2>${t('analysis.byCategory')}</h2><div class="note">${t('analysis.byCategoryHelp')}</div><table class="atable"><thead><tr><th>${t('cat.label')}</th><th>${t('analysis.ridersCol')}</th><th>${t('results.best')}</th><th>${t('analysis.medianBest')}</th></tr></thead><tbody>${rows.map(x => `<tr><td>${esc(x.c)}</td><td>${x.n}</td><td>${fmt(x.best)}<small>${esc(rname(x.who))}</small></td><td>${fmt(x.med)}${C && C.total ? `<small>${num(kmh(C.total, x.med), 1)} km/h</small>` : ''}</td></tr>`).join('')}</tbody></table>${hasNone ? `<div class="note">${t('cat.someMissing')}</div>` : ''}`;
+  }
+
   h += `<div class="note">${t('analysis.basedOn', { runs: nRuns(fin.length) })}${C ? ' ' + t('analysis.speedFrom') : ' ' + t('analysis.speedHint')}</div>`;
   return h;
 }
@@ -676,6 +1068,16 @@ function sheet() {
     <div class="field">${t('sheet.name')}<input id="n-name" placeholder="${t('sheet.namePlaceholder')}" autocomplete="off"></div>
     <div class="field">${t('sheet.date')}<input id="n-date" type="date" value="${today()}"></div>
     <button class="primary" type="submit">${t('sheet.createAndPick')}</button><button type="button" class="ghost" data-act="close">${t('common.cancel')}</button></form></div>`;
+  if (ui.sheet === 'rider') { const r = db.riders.find(x => x.id === ui.edit); if (!r) return '';
+    return `<div class="veil"><form class="sheet" data-form="rider"><h3>${t('admin.editRider')}</h3>
+    <div class="field">${t('admin.fullName')}<input id="r-name" value="${esc(r.name)}" required autocomplete="off"></div>
+    <div class="field">${t('admin.group')}<input id="r-grp" value="${esc(r.grp || '')}" list="grp-list" autocomplete="off"></div>
+    <div class="field">${t('cat.label')}<input id="r-cat" value="${esc(r.category || '')}" list="cat-list" placeholder="${t('cat.placeholder')}" autocomplete="off"></div>${lists()}
+    <button class="primary" type="submit">${t('common.save')}</button><button type="button" class="ghost" data-act="close">${t('common.cancel')}</button></form></div>`; }
+  if (ui.sheet === 'nav') { const C = course(ui.sid), g = C && C.gates.find(x => x.key === ui.nav); if (!g) return '';
+    return `<div class="veil"><div class="sheet"><h3>${t('nav.title', { point: esc(gateLabel(g.key)) })}</h3><div class="note">${g.lat.toFixed(6)}, ${g.lon.toFixed(6)}</div>
+    <div class="navlist">${navLinks(g).map(([k, u]) => `<a class="ghost navlink" href="${esc(u)}" target="_blank" rel="noopener">${t('nav.' + k)}</a>`).join('')}</div>
+    <button class="ghost" data-act="copycoords">${t('nav.copy')}</button><button class="primary" data-act="close">${t('common.done')}</button></div></div>`; }
   if (ui.sheet === 'people') { const s = cur(); if (!s) return ''; return `<div class="veil"><div class="sheet"><h3>${t('chrono.peopleBtn')}</h3>
     <div class="field">${t('sheet.addRider')}<input id="q" placeholder="${t('sheet.typeName')}" autocomplete="off"></div><div class="sugg" id="sugg">${sugg('')}</div>
     <ul class="list">${s.rider_ids.map(r => `<li class="line"><span class="grow">${esc(rname(r))}</span><button data-act="rmrider" data-id="${r}">${t('common.remove')}</button></li>`).join('')}</ul>
@@ -685,11 +1087,13 @@ function sheet() {
     ${isAdmin() ? `<button class="ghost danger" data-act="delsession">${t(ui.confirmDel ? 'sheet.confirmDelete' : 'sheet.deleteSession')}</button>` : ''}</div></div>`; }
   return '';
 }
+// Suggestions for the group and category fields
+const lists = () => `<datalist id="grp-list">${[...new Set(db.riders.map(r => r.grp).filter(Boolean))].sort(byNat).map(g => `<option value="${esc(g)}">`).join('')}</datalist><datalist id="cat-list">${[...new Set(db.riders.map(r => r.category).filter(Boolean))].sort(byNat).map(c => `<option value="${esc(c)}">`).join('')}</datalist>`;
 function sugg(q) {
   const s = cur(), n = q.trim().toLowerCase(), pool = db.riders.filter(r => r.active !== false && !s.rider_ids.includes(r.id)), groups = [...new Set(pool.map(r => r.grp).filter(Boolean))].sort();
   const list = pool.filter(r => r.name.toLowerCase().includes(n)).sort((a, b) => a.name.localeCompare(b.name, LOC)).slice(0, n ? 8 : 16);
   let h = list.map(r => `<button class="chip" data-act="addrider" data-id="${r.id}">+ ${esc(r.name)}</button>`).join('');
-  if (!n) h = groups.map(g => `<button class="chip add" data-act="addgroup" data-id="${esc(g)}">${t('sheet.addGroup', { group: esc(g) })}</button>`).join('') + h;
+  if (!n) h = groups.map(g => `<button class="chip add" data-act="addgroup" data-id="${esc(g)}">${t('sheet.addGroup', { group: esc(g) })}</button>`).join('') + [...new Set(pool.map(r => r.category).filter(Boolean))].sort(byNat).map(c => `<button class="chip add" data-act="addcat" data-id="${esc(c)}">${t('sheet.addGroup', { group: esc(c) })}</button>`).join('') + h;
   if (n && !db.riders.some(r => r.active !== false && r.name.toLowerCase() === n)) h += `<button class="chip add" data-act="addnew">${t('sheet.createRider', { name: esc(q.trim()) })}</button>`;
   return h || `<span class="note">${t('sheet.allIn')}</span>`;
 }
@@ -704,6 +1108,8 @@ function render(bg) {
   if (ui.view === 'admin' && !isAdmin()) ui.view = 'home';
   R = ui.view === 'session' ? runsOf(ui.sid) : [];
   app.innerHTML = V[ui.view]() + sheet();
+  if (ui.view === 'session' && ui.tab === 'gpx') placeMap(cur());
+  if (ui.view === 'session' && ui.tab === 'export') prepareExport(cur());
 }
 let toastT;
 // btn: optional {act, label} shown as a button in the toast
@@ -716,7 +1122,7 @@ function toast(msg, btn, ms) {
 const undoBtn = () => ({ act: 'undo', label: t('common.undo') });
 const tapTs = () => (downTs && now() - downTs < 1500) ? downTs : now();
 const setRiders = (s, ids) => { s.rider_ids = ids; save('sessions'); queue({ k: 'upd', t: 'sessions', id: s.id, patch: { rider_ids: ids } }); };
-const addRider = (name, grp) => { const r = { id: uuid(), name, grp: grp || '', active: true }; db.riders.push(r); save('riders'); queue({ k: 'ins', t: 'riders', row: r }); return r; };
+const addRider = (name, grp, cat) => { const r = { id: uuid(), name, grp: grp || '', active: true }; if (cat) r.category = cat; db.riders.push(r); save('riders'); queue({ k: 'ins', t: 'riders', row: r }); return r; };
 function download(name, text) {
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['﻿' + text], { type: 'text/csv;charset=utf-8' })); a.download = name;
   document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
@@ -762,7 +1168,7 @@ const A = {
   arch() { ui.showArch = !ui.showArch; },
   archive() { const s = cur(); s.archived = !s.archived; save('sessions'); queue({ k: 'upd', t: 'sessions', id: s.id, patch: { archived: s.archived } }); if (s.archived) { A.home(); toast(t('toast.archived')); } else toast(t('toast.unarchived')); },
   delsession() { if (!ui.confirmDel) { ui.confirmDel = true; return; } const id = ui.sid; db.sessions = db.sessions.filter(s => s.id !== id); delete db.events[id]; delete db.gpx[id]; delete db.pend[id]; save('sessions', 'events', 'gpx', 'pend'); queue({ k: 'del', t: 'sessions', id }); A.home(); toast(t('toast.sessionDeleted')); },
-  tab(d) { ui.tab = d.id; if ((d.id === 'gpx' || d.id === 'analysis') && !db.gpx[ui.sid]) pullGpx(ui.sid); },
+  tab(d) { ui.tab = d.id; if (d.id !== 'chrono' && !db.gpx[ui.sid]) pullGpx(ui.sid); },
   poste(d) { ui.poste = d.id; L.set('poste', d.id); ui.multi = false; ui.sel = []; },
   multi() { ui.multi = !ui.multi; ui.sel = []; },
   pick(d) { const i = ui.sel.indexOf(d.id); if (i < 0) ui.sel.push(d.id); else ui.sel.splice(i, 1); },
@@ -794,11 +1200,23 @@ const A = {
     download('chrono-' + s.date + '-' + s.name.replace(/[^\p{L}\p{N}]+/gu, '-').slice(0, 40) + '.csv', rows.join('\r\n'));
   },
   addrider(d) { const s = cur(); if (!s.rider_ids.includes(d.id)) setRiders(s, [...s.rider_ids, d.id]); },
+  addcat(d) { const s = cur(), add = db.riders.filter(r => r.active !== false && r.category === d.id && !s.rider_ids.includes(r.id)).sort((a, b) => a.name.localeCompare(b.name, LOC)).map(r => r.id); setRiders(s, [...s.rider_ids, ...add]); },
+  setcat(d) { ui.cat = d.id; },
+  // Share must be called right after the tap: the PDF is already prepared (see prepareExport).
+  pdfshare() { const p = ui.pdf; if (!p) return; const file = new File([p.bytes], p.name, { type: 'application/pdf' });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) navigator.share({ files: [file], title: p.name }).catch(e => { if (e && e.name !== 'AbortError') saveBlob(p.name, file); });
+    else saveBlob(p.name, file); },
+  pdfdown() { const p = ui.pdf; if (p) saveBlob(p.name, new Blob([p.bytes], { type: 'application/pdf' })); },
+  editrider(d) { ui.edit = d.id; ui.sheet = 'rider'; },
   addgroup(d) { const s = cur(), add = db.riders.filter(r => r.active !== false && r.grp === d.id && !s.rider_ids.includes(r.id)).sort((a, b) => a.name.localeCompare(b.name, LOC)).map(r => r.id); setRiders(s, [...s.rider_ids, ...add]); },
   addnew() { const n = $('q').value.trim(); if (!n) return; const r = addRider(n, ''), s = cur(); setRiders(s, [...s.rider_ids, r.id]); },
   rmrider(d) { const s = cur(); setRiders(s, s.rider_ids.filter(r => r !== d.id)); if (db.pend[s.id]) { delete db.pend[s.id][d.id]; save('pend'); } },
   delyouth(d) { const r = db.riders.find(r => r.id === d.id); if (!r) return; r.active = false; save('riders'); queue({ k: 'upd', t: 'riders', id: r.id, patch: { active: false } }); toast(t('toast.riderRemoved', { name: r.name })); },
   async delcoach(d) { const { error } = await sb.from('allowed_users').delete().eq('email', d.id); if (error) toast(isNetErr(error) ? t('toast.retryLater') : t('toast.refused', { msg: error.message })); await pullCoaches(); render(); },
+  nav(d) { ui.nav = d.id; ui.sheet = 'nav'; },
+  mapbig() { ui.mapBig = !ui.mapBig; },
+  copycoords() { const C = course(ui.sid), g = C && C.gates.find(x => x.key === ui.nav); if (!g) return; const v = g.lat.toFixed(6) + ', ' + g.lon.toFixed(6);
+    try { navigator.clipboard.writeText(v).then(() => toast(t('nav.copied')), () => toast(v, null, 10000)); } catch (e) { toast(v, null, 10000); } },
   trkdel(d) { saveTracks(ui.sid, tracksOf(ui.sid).filter(tk => tk.id !== d.id)); },
   // Add a run found on a GPS track to the results, as if it had been timed by the coaches.
   gpsadd(d) { const x = (ui.det || {})[d.id]; if (!x || !x.rider) return; const r = x.r, ev = [emit('start', x.rider, r.start)]; r.splits.forEach(v => ev.push(emit('split', x.rider, v))); r.laps.forEach(v => ev.push(emit('lap', x.rider, v))); ev.push(emit('finish', x.rider, r.end)); ui.undo = ev; toast(t('toast.gpsAdded', { name: rname(x.rider), time: fmt(r.end - r.start) }), undoBtn()); }
@@ -822,7 +1240,9 @@ const F = {
   },
   async newpass() { const { error } = await sb.auth.updateUser({ password: $('np').value }); if (error) { toast(t('auth.refused', { msg: error.message })); return; } ui.view = db.me ? 'home' : 'login'; render(); toast(t('toast.passwordSaved')); const { data } = await sb.auth.getSession(); if (data && data.session) afterLogin(data.session.user); },
   new() { const s = { id: uuid(), name: $('n-name').value.trim() || t('sheet.untitled'), date: $('n-date').value || today(), archived: false, rider_ids: [] }; db.sessions.push(s); save('sessions'); queue({ k: 'ins', t: 'sessions', row: { ...s, gpx: null } }); A.open({ id: s.id }); ui.sheet = 'people'; render(); },
-  youth() { const n = $('new-youth').value.trim(), g = $('new-grp').value.trim(); if (!n) return; if (db.riders.some(r => r.active !== false && r.name.toLowerCase() === n.toLowerCase())) { toast(t('toast.riderExists', { name: n })); return; } addRider(n, g); render(); $('new-youth').focus(); },
+  youth() { const n = $('new-youth').value.trim(), g = $('new-grp').value.trim(), c = $('new-cat').value.trim(); if (!n) return; if (db.riders.some(r => r.active !== false && r.name.toLowerCase() === n.toLowerCase())) { toast(t('toast.riderExists', { name: n })); return; } addRider(n, g, c); render(); $('new-youth').focus(); },
+  rider() { const r = db.riders.find(x => x.id === ui.edit); if (!r) return; const p = { name: $('r-name').value.trim() || r.name, grp: $('r-grp').value.trim() }, c = $('r-cat').value.trim();
+    if (c || r.category) p.category = c; Object.assign(r, p); save('riders'); queue({ k: 'upd', t: 'riders', id: r.id, patch: p }); ui.sheet = null; render(); toast(t('toast.riderSaved', { name: r.name })); },
   async coach() {
     const row = { name: $('c-name').value.trim(), email: $('c-mail').value.trim().toLowerCase(), role: $('c-role').value }; if (!row.name || !row.email) return;
     const { error } = await sb.from('allowed_users').insert(row);
@@ -839,7 +1259,7 @@ document.addEventListener('focusout', () => setTimeout(() => { if (dirty && !typ
 document.addEventListener('click', e => {
   const el = e.target.closest('[data-act]'); if (!el || el.disabled) return;
   const act = el.dataset.act, r = A[act](el.dataset); dirty = false;
-  if (!(r && r.then)) render();
+  if (!(r && r.then) && act !== 'pdfshare' && act !== 'pdfdown') render();
   if (ui.sheet === 'people' && /^add/.test(act)) { const q = $('q'); if (q) q.focus(); }
 });
 document.addEventListener('submit', e => { const f = e.target.closest('[data-form]'); if (!f) return; e.preventDefault(); F[f.dataset.form](); });
@@ -849,13 +1269,14 @@ function readFile(input, cb) { const f = input.files && input.files[0]; if (!f) 
 const csvRows = txt => txt.replace(/^﻿/, '').split(/\r?\n/).map(l => l.split(/[;,\t]/).map(c => c.trim().replace(/^"|"$/g, ''))).filter(r => r[0] && !/^(name|nom|prénom|prenom|vorname)$/i.test(r[0]));
 document.addEventListener('change', e => {
   const id = e.target.id, s = cur();
+  if (e.target.dataset && e.target.dataset.opt) { ui.exp[e.target.dataset.opt] = e.target.checked; render(); return; }
   if (id === 'lang-pick') { L.set('lang', e.target.value); setLang(e.target.value); e.target.blur(); render(); return; }
   if (id === 'e-name' && s) { const v = e.target.value.trim(); if (v) { s.name = v; save('sessions'); queue({ k: 'upd', t: 'sessions', id: s.id, patch: { name: v } }); } }
   if (id === 'e-date' && s && e.target.value) { s.date = e.target.value; save('sessions'); queue({ k: 'upd', t: 'sessions', id: s.id, patch: { date: s.date } }); }
   if (e.target.dataset && e.target.dataset.track) { const tr = tracksOf(ui.sid), tk = tr.find(x => x.id === e.target.dataset.track); if (tk) { tk.riderId = e.target.value || null; saveTracks(ui.sid, tr); } e.target.blur(); render(); return; }
   if (id === 'gpx-file') { const f = e.target.files && e.target.files[0], sid = ui.sid; e.target.value = ''; if (!f) return;
     readTrackFile(f).then(pts => { if (pts.length < 2) throw new Error('empty'); const tr = tracksOf(sid); tr.push({ id: uuid().slice(0, 8), name: f.name, riderId: null, pts }); saveTracks(sid, tr); render(); toast(t('gpx.imported', { n: pts.length })); }).catch(() => toast(t('gpx.unreadable'))); }
-  if (id === 'csv-youth') readFile(e.target, txt => { const rows = csvRows(txt), have = new Set(db.riders.filter(r => r.active !== false).map(r => r.name.toLowerCase())); let n = 0; rows.forEach(r => { if (!have.has(r[0].toLowerCase())) { have.add(r[0].toLowerCase()); addRider(r[0], r[1] || ''); n++; } }); render(); toast(t('toast.ridersImported', { n, skipped: rows.length - n })); });
+  if (id === 'csv-youth') readFile(e.target, txt => { const rows = csvRows(txt), have = new Set(db.riders.filter(r => r.active !== false).map(r => r.name.toLowerCase())); let n = 0; rows.forEach(r => { if (!have.has(r[0].toLowerCase())) { have.add(r[0].toLowerCase()); addRider(r[0], r[1] || '', r[2] || ''); n++; } }); render(); toast(t('toast.ridersImported', { n, skipped: rows.length - n })); });
   if (id === 'csv-coach') readFile(e.target, async txt => { const rows = csvRows(txt).filter(r => /@/.test(r[1] || '')).map(r => ({ name: r[0], email: r[1].toLowerCase(), role: /admin/i.test(r[2] || '') ? 'admin' : 'coach' })); if (!rows.length) { toast(t('toast.coachCsvEmpty')); return; } const { error } = await sb.from('allowed_users').upsert(rows, { onConflict: 'email', ignoreDuplicates: true }); await pullCoaches(); render(); toast(error ? (isNetErr(error) ? t('toast.retryLater') : t('toast.refused', { msg: error.message })) : t('toast.coachesImported', { n: rows.length })); });
 });
 self.addEventListener('online', () => { setNet(true); syncClock(); push().then(pull); });

@@ -160,3 +160,33 @@ h2{font:700 12px/1 var(--display);letter-spacing:.09em;text-transform:uppercase;
 .sec td.s1{background:color-mix(in srgb,var(--accent) 38%,transparent);font-weight:700}
 .sec td.s2{background:color-mix(in srgb,var(--accent) 20%,transparent)}
 .sec td.s3{background:color-mix(in srgb,var(--accent) 9%,transparent)}
+
+/* Interactive map (Leaflet) and navigation links */
+.mapslot .lmap{height:340px;border-radius:14px;border:1px solid var(--line);overflow:hidden;background:var(--surface);z-index:0}
+.mapslot.big .lmap{height:72vh}
+.mapslot.live .plot{display:none}
+.maptools{margin-top:-6px}
+.gtap{cursor:pointer}
+.leaflet-tooltip.gtip{background:var(--ink);color:var(--bg);border:0;font:700 12px var(--body);padding:2px 6px;box-shadow:none}
+.leaflet-tooltip.gtip::before{border-top-color:var(--ink)}
+.leaflet-container{font:inherit}
+.leaflet-control-attribution{font-size:11px}
+.line.gate{gap:10px}
+.line .dot{width:12px;height:12px;border-radius:50%;flex:none;border:2px solid var(--surface);box-shadow:0 0 0 1px var(--line)}
+.dot.go{background:var(--go)}.dot.stop{background:var(--stop)}.dot.split{background:var(--split)}
+.line button.navbtn{color:var(--accent);min-width:auto;padding:0 10px}
+.navlist{display:flex;flex-direction:column;gap:8px}
+.navlink{display:flex;align-items:center;min-height:48px;text-decoration:none;color:var(--ink);font-weight:600}
+
+/* Categories and export */
+.tabs{overflow-x:auto;scrollbar-width:none}
+.tabs::-webkit-scrollbar{display:none}
+.tabs button{white-space:nowrap}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:600}
+.linkrow{background:none;border:0;padding:0;text-align:left;font:inherit;color:var(--ink);min-height:44px}
+.linkrow small{color:var(--muted);display:block;font-size:13px}
+.checks{display:flex;flex-direction:column;gap:2px;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:6px 12px}
+.check{display:flex;align-items:center;gap:10px;min-height:42px;font-weight:500}
+.check input{width:20px;height:20px;flex:none;accent-color:var(--accent)}
+.inline{flex-wrap:wrap}

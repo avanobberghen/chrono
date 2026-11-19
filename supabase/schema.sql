@@ -23,9 +23,13 @@ create table if not exists public.riders (
   id         uuid primary key default gen_random_uuid(),
   name       text not null,
   grp        text not null default '',
+  category   text not null default '',   -- age class, e.g. U11, U13
   active     boolean not null default true,
   created_at timestamptz not null default now()
 );
+
+-- Added in version 1.4 (for databases created before):
+alter table public.riders add column if not exists category text not null default '';
 
 -- Timing sessions
 create table if not exists public.sessions (
@@ -163,5 +167,6 @@ end $$;
 -- ---------- First admin ----------
 -- REPLACE the email and name below in the Supabase SQL editor before clicking Run.
 insert into public.allowed_users (email, name, role)
-values ('admin@example.com', 'Admin Name', 'admin')
+select email, name, 'admin' from (values ('admin@example.com', 'Admin Name')) as v(email, name)
+where email <> 'admin@example.com'          -- nothing is added while the example address is left unchanged
 on conflict (email) do nothing;
