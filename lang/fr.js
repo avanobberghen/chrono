@@ -206,7 +206,7 @@ self.CHRONO_LANGS.fr = {
   'export.sectorsHelp': 'Meilleur temps par secteur, tous passages confondus (en gras : le plus rapide du groupe). Idéal = somme des meilleurs secteurs.',
   'export.sectorsN': { one: '{n} secteur', other: '{n} secteurs' },
   'export.allRuns': 'Détail des passages',
-  'export.allRunsHelp': 'Dans l\'ordre ; inters entre parenthèses ; meilleur passage en couleur.',
+  'export.allRunsHelp': 'meilleur passage en couleur ; inters en petit',
   'export.share': 'Partager le PDF',
   'export.download': 'Télécharger le PDF',
   'export.preparing': 'Préparation du PDF…',
@@ -269,5 +269,6 @@ self.CHRONO_LANGS.fr = {
   'course.activity': 'Activité complète',
   'course.profile': 'Profil d\'altitude du parcours chronométré',
   'course.axis': 'altitude le long du parcours',
-  'course.lap': 'un tour'
+  'course.lap': 'un tour',
+  'export.runN': 'Passage {i}'
 };

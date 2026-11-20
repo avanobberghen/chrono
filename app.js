@@ -650,7 +650,7 @@ function gpxView(s) {
   if (C) {
     const segs = Object.keys(C.seg).filter(x => x !== 'total').map(x => { const [a, b] = x.split('>'); return `<div><span>${esc(gateLabel(a))} → ${esc(gateLabel(b))}</span><b>${metres(C.seg[x])}</b></div>`; }).join('');
     const sg = courseSegment(s.id, C);
-    head = `<h2>${t('course.title')}</h2><div class="kpis">${C.total ? k(t('course.length'), metres(C.total)) : ''}${C.lap ? k(t('gpx.lapLength'), metres(C.lap)) : ''}${sg && sg.ele ? k(t('gpx.climb'), Math.round(sg.up) + ' m') + k(t('gpx.descent'), Math.round(sg.down) + ' m') : k(t('gpx.gatesFound'), C.gates.length)}</div>${profileSvg(sg, C.total || C.lap)}
+    head = `<h2>${t('course.title')}</h2>${sg ? `<div id="course-slot" class="mapslot ${ui.mapBig ? 'big' : ''}">${mapSvg([{ pts: sg.pts, riderId: sg.riderId }], C, null)}</div>` : ''}<div class="kpis">${C.total ? k(t('course.length'), metres(C.total)) : ''}${C.lap ? k(t('gpx.lapLength'), metres(C.lap)) : ''}${sg && sg.ele ? k(t('gpx.climb'), Math.round(sg.up) + ' m') + k(t('gpx.descent'), Math.round(sg.down) + ' m') : k(t('gpx.gatesFound'), C.gates.length)}</div>${profileSvg(sg, C.total || C.lap)}
       ${segs ? `<div class="res"><div class="runs segs">${segs}</div></div>` : ''}
       <div class="note">${t('gpx.courseFrom', { runs: nRuns(C.runs), names: esc(C.refs.map(rname).join(', ')) })}</div>`;
   } else head = `<div class="hint">${t('gpx.noCourse')}</div>`;
@@ -671,7 +671,8 @@ function gpxView(s) {
       <div class="tools"><button class="ghost" data-act="trkdel" data-id="${esc(tk.id)}">${t('gpx.remove')}</button></div></div></details>`;
   }).join('');
   const pointsList = C ? `<h2>${t('gpx.coursePoints')}</h2><ul class="list">${C.gates.map(g => `<li class="line gate"><i class="dot ${g.key === 'start' ? 'go' : g.key === 'finish' ? 'stop' : 'split'}"></i><span class="grow">${esc(gateLabel(g.key))}<small>${g.lat.toFixed(5)}, ${g.lon.toFixed(5)}</small></span><button class="navbtn" data-act="nav" data-id="${g.key}">${t('gpx.navigate')}</button></li>`).join('')}</ul>` : '';
-  return `<div id="map-slot" class="mapslot ${ui.mapBig ? 'big' : ''}">${mapSvg(tracks, C, C ? courseSegment(s.id, C) : null)}</div><div class="tools maptools"><button class="ghost" data-act="mapbig">${t(ui.mapBig ? 'gpx.mapSmall' : 'gpx.mapBig')}</button></div>${head}${pointsList}<h2>${t('gpx.tracks', { n: tracks.length })}</h2><ul class="list"><li>${cards}</li></ul><div class="tools">${importBtn('ghost')}</div>`;
+  const activity = `<h2>${t('course.activity')}</h2><div id="map-slot" class="mapslot ${ui.mapBig ? 'big' : ''}">${mapSvg(tracks, C, C ? courseSegment(s.id, C) : null)}</div><div class="tools maptools"><button class="ghost" data-act="mapbig">${t(ui.mapBig ? 'gpx.mapSmall' : 'gpx.mapBig')}</button></div>`;
+  return `${C ? head + pointsList + activity : activity + head}<h2>${t('gpx.tracks', { n: tracks.length })}</h2><ul class="list"><li>${cards}</li></ul><div class="tools">${importBtn('ghost')}</div>`;
 }
 
 /* Interactive map: Leaflet with map tiles. The map object is kept between renders and moved into
@@ -679,7 +680,8 @@ function gpxView(s) {
 // Leaflet's global is read as self.L: inside this file, L is the local storage helper.
 const LF = new Proxy({}, { get: (_, k) => self.L[k] });
 const LEAFLET = 'https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/';
-let leafletP = null, lmap = null, lbox = null, lgroup = null, lsig = '';
+let leafletP = null;
+const LM = {};   // one Leaflet map per slot: map-slot (whole activity), course-slot (timed course)
 function loadLeaflet() {
   if (self.L && self.L.map) return Promise.resolve(true);
   if (!leafletP) { const css = document.createElement('link'); css.rel = 'stylesheet'; css.href = LEAFLET + 'leaflet.css'; document.head.appendChild(css);
@@ -687,34 +689,36 @@ function loadLeaflet() {
   return leafletP;
 }
 function placeMap(s) {
-  if (!$('map-slot')) return;
-  const attach = () => {
-    const slot = $('map-slot'); if (!slot || !self.L || !self.L.map) return;
-    if (!lbox) { lbox = document.createElement('div'); lbox.className = 'lmap'; }
-    slot.innerHTML = ''; slot.appendChild(lbox); slot.classList.add('live');
-    if (!lmap) {
-      lmap = LF.map(lbox, { zoomControl: true });
-      LF.tileLayer(MAP.tiles, { maxZoom: MAP.maxZoom, attribution: MAP.attribution }).addTo(lmap);
-      lgroup = LF.layerGroup().addTo(lmap);
+  const ids = ['course-slot', 'map-slot'].filter(id => $(id)); if (!ids.length) return;
+  const attach = () => ids.forEach(id => {
+    const slot = $(id); if (!slot || !self.L || !self.L.map) return;
+    const m = LM[id] = LM[id] || {};
+    if (!m.box) { m.box = document.createElement('div'); m.box.className = 'lmap'; }
+    slot.innerHTML = ''; slot.appendChild(m.box); slot.classList.add('live');
+    if (!m.map) {
+      m.map = LF.map(m.box, { zoomControl: true });
+      LF.tileLayer(MAP.tiles, { maxZoom: MAP.maxZoom, attribution: MAP.attribution }).addTo(m.map);
+      m.group = LF.layerGroup().addTo(m.map);
     }
-    lmap.invalidateSize();
-    const tracks = tracksOf(s.id), C = course(s.id);
-    const sig = [s.id, LANG, ui.mapBig, tracks.map(tk => tk.id + (tk.riderId || '') + tk.pts.length).join(','), C ? C.gates.map(g => g.key + g.lat.toFixed(6) + g.lon.toFixed(6)).join(',') : ''].join('|');
-    if (sig !== lsig) { lsig = sig; drawMap(tracks, C); }
-  };
+    m.map.invalidateSize();
+    const tracks = tracksOf(s.id), C = course(s.id), seg = C ? courseSegment(s.id, C) : null, only = id === 'course-slot';
+    const sig = [s.id, LANG, ui.mapBig, tracks.map(tk => tk.id + (tk.riderId || '') + tk.pts.length).join(','), C ? C.gates.map(g => g.key + g.lat.toFixed(6) + g.lon.toFixed(6)).join(',') : '', seg ? seg.pts.length : 0].join('|');
+    if (sig !== m.sig) { m.sig = sig; drawMap(m, only ? [] : tracks, C, seg, only); }
+  });
   if (self.L && self.L.map) attach(); else loadLeaflet().then(ok => { if (ok && ui.view === 'session' && ui.tab === 'gpx') attach(); });
 }
-function drawMap(tracks, C) {
-  lgroup.clearLayers();
+// only = true: the timed course alone, zoomed on it; otherwise every track, with the course drawn thicker
+function drawMap(m, tracks, C, seg, only) {
+  m.group.clearLayers();
   const css = getComputedStyle(document.documentElement), col = n => css.getPropertyValue('--' + n).trim() || '#4A90E2', all = [];
   tracks.forEach(tk => { const ref = C && C.refs.includes(tk.riderId), ll = tk.pts.map(p => [p[0], p[1]]); all.push(...ll);
-    LF.polyline(ll, { color: ref ? col('accent') : col('muted'), weight: ref ? 5 : 3, opacity: ref ? .95 : .75 }).bindTooltip(esc(tk.name + (tk.riderId ? ' · ' + rname(tk.riderId) : ''))).addTo(lgroup); });
-  const seg = C ? courseSegment(ui.sid, C) : null; if (seg) LF.polyline(seg.pts.map(p => [p[0], p[1]]), { color: col('accent'), weight: 7, opacity: .95 }).bindTooltip(esc(t('course.title'))).addTo(lgroup);
+    LF.polyline(ll, { color: ref ? col('accent') : col('muted'), weight: ref ? 4 : 3, opacity: ref ? .8 : .7 }).bindTooltip(esc(tk.name + (tk.riderId ? ' · ' + rname(tk.riderId) : ''))).addTo(m.group); });
+  if (seg) { const ll = seg.pts.map(p => [p[0], p[1]]); if (only) all.push(...ll); LF.polyline(ll, { color: col('accent'), weight: only ? 6 : 7, opacity: .95 }).bindTooltip(esc(t('course.title'))).addTo(m.group); }
   if (C) C.gates.forEach(g => { all.push([g.lat, g.lon]);
     LF.circleMarker([g.lat, g.lon], { radius: 11, color: '#fff', weight: 3, fillColor: col(g.key === 'start' ? 'go' : g.key === 'finish' ? 'stop' : 'split'), fillOpacity: 1 })
       .bindTooltip(esc(gateShort(g.key)), { permanent: true, direction: 'top', offset: [0, -12], className: 'gtip' })
-      .on('click', () => { ui.nav = g.key; ui.sheet = 'nav'; render(); }).addTo(lgroup); });
-  if (all.length) lmap.fitBounds(LF.latLngBounds(all), { padding: [28, 28], maxZoom: 18 });
+      .on('click', () => { ui.nav = g.key; ui.sheet = 'nav'; render(); }).addTo(m.group); });
+  if (all.length) m.map.fitBounds(LF.latLngBounds(all), { padding: only ? [22, 22] : [28, 28], maxZoom: 18 });
 }
 const isIOS = () => /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 // Links that open a point in a navigation app. Each app opens if installed, otherwise its web page.
@@ -806,35 +810,38 @@ function loadLogo() {
 const fmtDur = ms => { const m = Math.round(ms / 60000); return m >= 60 ? Math.floor(m / 60) + ' h ' + String(m % 60).padStart(2, '0') : m + ' min'; };
 /* Map picture for the PDF: map tiles (when the network allows) with the tracks and course points
    drawn on top, as one JPEG. Without network the tracks are drawn on a plain background. */
-function mapImage(tracks, C, W, H) {
+function mapImage(tracks, C, W, H, fill) {
   return new Promise(resolve => {
     const pts = tracks.flatMap(tk => trackStats(tk.pts).xy).concat(C ? C.gates.map(g => [g.lat, g.lon]) : []); if (!pts.length) return resolve(null);
     const X = (lon, z) => (lon + 180) / 360 * 256 * 2 ** z, Y = (lat, z) => { const sn = Math.sin(lat * RAD); return (.5 - Math.log((1 + sn) / (1 - sn)) / (4 * Math.PI)) * 256 * 2 ** z; };
     const la = pts.map(p => p[0]), lo = pts.map(p => p[1]), la0 = Math.min(...la), la1 = Math.max(...la), lo0 = Math.min(...lo), lo1 = Math.max(...lo);
-    let z = Math.min(17, MAP.maxZoom || 17);
-    while (z > 1 && (X(lo1, z) - X(lo0, z) > W * .86 || Y(la0, z) - Y(la1, z) > H * .82)) z--;
-    const ox = (X(lo0, z) + X(lo1, z)) / 2 - W / 2, oy = (Y(la0, z) + Y(la1, z)) / 2 - H / 2;
+    // Largest tile zoom where the track fits, then a scale between 1 and 2 so it fills the frame (fill = share of the frame used)
+    const fw = (fill || .84) * W, fh = (fill || .84) * H * .94; let z = Math.min(17, MAP.maxZoom || 17);
+    while (z > 1 && (X(lo1, z) - X(lo0, z) > fw || Y(la0, z) - Y(la1, z) > fh)) z--;
+    const bw = X(lo1, z) - X(lo0, z), bh = Y(la0, z) - Y(la1, z), k = Math.max(1, Math.min(1.98, bw ? fw / bw : 2, bh ? fh / bh : 2));
+    const PX = lon => X(lon, z) * k, PY = lat => Y(lat, z) * k, TS = 256 * k;
+    const ox = (PX(lo0) + PX(lo1)) / 2 - W / 2, oy = (PY(la0) + PY(la1)) / 2 - H / 2 + H * .03;
     const cv = document.createElement('canvas'); cv.width = W; cv.height = H; const cx = cv.getContext('2d');
     cx.fillStyle = '#EEF2F6'; cx.fillRect(0, 0, W, H);
     const css = getComputedStyle(document.documentElement), pal = Object.assign({ accent: '#2A5684', muted: '#55687F', go: '#16794A', stop: '#C33A2F', split: '#8A6A00' }, SET.light || {});
     const overlay = () => {
-      tracks.forEach(tk => { const ref = C && C.refs.includes(tk.riderId); cx.beginPath(); trackStats(tk.pts).xy.forEach((p, i) => { const px = X(p[1], z) - ox, py = Y(p[0], z) - oy; i ? cx.lineTo(px, py) : cx.moveTo(px, py); });
+      tracks.forEach(tk => { const ref = C && C.refs.includes(tk.riderId); cx.beginPath(); trackStats(tk.pts).xy.forEach((p, i) => { const px = PX(p[1]) - ox, py = PY(p[0]) - oy; i ? cx.lineTo(px, py) : cx.moveTo(px, py); });
         cx.lineJoin = 'round'; cx.lineCap = 'round'; cx.strokeStyle = '#FFFFFF'; cx.lineWidth = ref ? 9 : 7; cx.globalAlpha = .85; cx.stroke(); cx.globalAlpha = 1; cx.strokeStyle = ref ? pal.accent : pal.muted; cx.lineWidth = ref ? 5 : 3.5; cx.stroke(); });
-      if (C) C.gates.forEach(g => { const px = X(g.lon, z) - ox, py = Y(g.lat, z) - oy, lab = gateShort(g.key);
+      if (C) C.gates.forEach(g => { const px = PX(g.lon) - ox, py = PY(g.lat) - oy, lab = gateShort(g.key);
         cx.beginPath(); cx.arc(px, py, 13, 0, 7); cx.fillStyle = g.key === 'start' ? pal.go : g.key === 'finish' ? pal.stop : pal.split; cx.fill(); cx.lineWidth = 4; cx.strokeStyle = '#FFFFFF'; cx.stroke();
         cx.font = 'bold 24px Helvetica, Arial, sans-serif'; cx.textAlign = 'center'; cx.lineWidth = 6; cx.strokeStyle = '#FFFFFF'; cx.strokeText(lab, px, py - 22); cx.fillStyle = '#14202E'; cx.fillText(lab, px, py - 22); });
     };
     const finish = tiles => { overlay(); try { cv.toBlob(b => b ? b.arrayBuffer().then(a => resolve({ bytes: new Uint8Array(a), w: W, h: H, tiles })) : resolve(null), 'image/jpeg', .86); } catch (e) { resolve(null); } };
     if (!MAP.tiles || navigator.onLine === false) return finish(false);
     const jobs = [], n = 2 ** z;
-    for (let tx = Math.floor(ox / 256); tx <= Math.floor((ox + W) / 256); tx++) for (let ty = Math.floor(oy / 256); ty <= Math.floor((oy + H) / 256); ty++) {
+    for (let tx = Math.floor(ox / TS); tx <= Math.floor((ox + W) / TS); tx++) for (let ty = Math.floor(oy / TS); ty <= Math.floor((oy + H) / TS); ty++) {
       if (ty < 0 || ty >= n) continue;
       const url = MAP.tiles.replace('{z}', z).replace('{x}', ((tx % n) + n) % n).replace('{y}', ty).replace('{s}', 'a').replace('{r}', '');
       jobs.push(new Promise(ok => { const im = new Image(); im.crossOrigin = 'anonymous'; const tm = setTimeout(() => ok(null), 8000);
-        im.onload = () => { clearTimeout(tm); ok({ im, x: tx * 256 - ox, y: ty * 256 - oy }); }; im.onerror = () => { clearTimeout(tm); ok(null); }; im.src = url; }));
+        im.onload = () => { clearTimeout(tm); ok({ im, x: tx * TS - ox, y: ty * TS - oy }); }; im.onerror = () => { clearTimeout(tm); ok(null); }; im.src = url; }));
     }
     Promise.all(jobs).then(list => {
-      const got = list.filter(Boolean); got.forEach(tl => cx.drawImage(tl.im, Math.round(tl.x), Math.round(tl.y)));
+      const got = list.filter(Boolean); got.forEach(tl => cx.drawImage(tl.im, Math.floor(tl.x), Math.floor(tl.y), Math.ceil(TS) + 1, Math.ceil(TS) + 1));
       if (got.length) { cx.fillStyle = 'rgba(255,255,255,.18)'; cx.fillRect(0, 0, W, H); }
       try { cx.getImageData(0, 0, 1, 1); } catch (e) { cx.fillStyle = '#EEF2F6'; cx.fillRect(0, 0, W, H); return finish(false); }   // tiles without CORS: plain background
       finish(got.length > 0);
@@ -856,7 +863,7 @@ async function buildReport(s, opt) {
   // Visual block of the two map columns: on the left the course map (3/4) above its elevation profile (1/4),
   // on the right the whole activity over the same height.
   const seg = C ? courseSegment(s.id, C) : null, COLW = (595.28 - 2 * 36 - 14) / 2, VIS = 190, CMH = Math.round(VIS * .75), PRH = VIS - CMH - 4;
-  const courseImg = opt.map && seg ? await mapImage([{ pts: seg.pts, riderId: seg.riderId }], C, 1000, Math.round(1000 * CMH / COLW)) : null;
+  const courseImg = opt.map && seg ? await mapImage([{ pts: seg.pts, riderId: seg.riderId }], C, 1000, Math.round(1000 * CMH / COLW), .95) : null;
   const allImg = opt.map && tracks.length ? await mapImage(tracks, C, 1000, Math.round(1000 * (seg ? VIS : CMH) / COLW)) : null;
   const title = s.name + ' · ' + fDate(s.date) + (ui.cat ? ' · ' + ui.cat : '');
   const sec = v => num(v / 1000, 2) + ' s', M = 36, FOOT = 40;
@@ -868,7 +875,7 @@ async function buildReport(s, opt) {
     const heading = (txt, x, w, sub) => { x = x == null ? M : x; w = w || CW; y += 9; P.text(x, y + 7, txt.toUpperCase(), { size: 7.5, bold: true, color: ACC }); if (sub) P.text(x + w, y + 7, sub, { size: 6.5, color: MUTED, align: 'right', max: w - P.width(txt.toUpperCase(), 7.5, true) - 12 }); y += 10; P.line(x, y, x + w, y, { color: ACC, lw: .8 }); y += 3; };
     // Compact table; columns without w share the remaining width. Breaks across pages only in full width.
     const table = (cols, rows, o) => {
-      o = o || {}; const x0 = o.x == null ? M : o.x, TW = o.w || CW, rh = 12.5, free = cols.filter(c => !c.w), fixed = cols.reduce((a, c) => a + (c.w || 0), 0);
+      o = o || {}; const x0 = o.x == null ? M : o.x, TW = o.w || CW, rh = o.sub ? 19 : 12.5, free = cols.filter(c => !c.w), fixed = cols.reduce((a, c) => a + (c.w || 0), 0);
       free.forEach(c => { c.w = (TW - fixed) / free.length; });
       // Header labels wrap onto two lines
       const wrap2 = (txt, w) => { const words = String(txt).split(' '); let l1 = ''; while (words.length && P.width((l1 ? l1 + ' ' : '') + words[0], 6.8, true) <= w) l1 += (l1 ? ' ' : '') + words.shift(); if (!l1) l1 = words.shift() || ''; return [l1, words.join(' ')]; };
@@ -879,7 +886,9 @@ async function buildReport(s, opt) {
       rows.forEach((r, i) => {
         if (o.x == null && room(rh)) head();
         if (o.highlight && o.highlight(i)) P.rect(x0, y, TW, rh, { fill: '#EAF1FA' });
-        let x = x0; cols.forEach((c, j) => { const v = r[j]; if (v != null && v !== '') P.text(c.align === 'right' ? x + c.w - 3 : x + 3, y + 9, v, { size: 8, bold: c.bold || (o.boldCell && o.boldCell(i, j)), color: c.muted ? MUTED : INK, align: c.align, max: c.w - 4 }); x += c.w; });
+        let x = x0; cols.forEach((c, j) => { const v = r[j], tx = c.align === 'right' ? x + c.w - 3 : x + 3;
+          if (v != null && v !== '') P.text(tx, y + 9, v, { size: 8, bold: c.bold || (o.boldCell && o.boldCell(i, j)), color: (o.color && o.color(i, j)) || (c.muted ? MUTED : INK), align: c.align, max: c.w - 4 });
+          const sub = o.sub && o.sub(i, j); if (sub) P.text(tx, y + 16, sub, { size: 6, color: MUTED, align: c.align, max: c.w - 4 }); x += c.w; });
         y += rh; P.line(x0, y, x0 + TW, y, { color: LINE, lw: .35 });
       });
       y += 2;
@@ -1023,20 +1032,20 @@ async function buildReport(s, opt) {
       }
     }
 
-    // Every run, in order
+    // Every run, in order: one column per run (in blocks of 8 runs when there are more)
     if (opt.runs) {
-      heading(t('export.allRuns'), null, null, t('export.allRunsHelp'));
-      riders.concat(dnfOnly).forEach(r => {
-        const rs = fin.concat(dnfRuns).filter(x => x.riderId === r).sort((a, c) => a.start - c.start), b = riders.includes(r) ? bestOf(r) : null; room(12);
-        let x = M + P.text(M, y + 8, rname(r), { size: 7.5, bold: true, max: 110 }) + 8;
-        rs.forEach((v, k) => {
-          if (v.dnf != null) { const tk = (k + 1) + '. ' + t('btn.dnf'), w2 = P.width(tk, 7.5, false) + 10; if (x + w2 > M + CW) { x = M + 118; y += 10; room(10); } P.text(x, y + 8, tk, { size: 7.5, color: MUTED }); x += w2; return; }
-          const tok = (k + 1) + '. ' + fmt(v.end - v.start) + (v.splits.length ? ' (' + v.splits.map(sp => fmt(sp - v.start)).join(', ') + ')' : v.laps.length ? ' (' + t('results.lapsCount', { n: v.laps.length + 1 }) + ')' : ''), bold = v.end - v.start === b, w = P.width(tok, 7.5, bold) + 10;
-          if (x + w > M + CW) { x = M + 118; y += 10; room(10); }
-          P.text(x, y + 8, tok, { size: 7.5, bold, color: bold ? ACC : INK }); x += w;
-        });
-        y += 11;
-      });
+      const all = riders.concat(dnfOnly).map(r => ({ r, rs: fin.concat(dnfRuns).filter(x => x.riderId === r).sort((a, c) => a.start - c.start), b: riders.includes(r) ? bestOf(r) : null }));
+      const nMax = Math.max(...all.map(x => x.rs.length)), PER = 8, withSub = all.some(x => x.rs.some(v => v.splits.length || v.laps.length));
+      for (let c0 = 0; c0 < nMax; c0 += PER) {
+        const n = Math.min(PER, nMax - c0), cw = Math.min(62, (CW - 120) / n);
+        heading(t('export.allRuns') + (nMax > PER ? ' (' + (c0 + 1) + '–' + (c0 + n) + ')' : ''), null, null, t('export.allRunsHelp'));
+        const cell = (x, k) => x.rs[c0 + k];
+        table([{ label: t('csv.name'), bold: true }, ...Array.from({ length: n }, (_, k) => ({ label: t('export.runN', { i: c0 + k + 1 }), w: cw, align: 'right' }))],
+          all.map(x => [rname(x.r), ...Array.from({ length: n }, (_, k) => { const v = cell(x, k); return !v ? '' : v.dnf != null ? t('btn.dnf') : fmt(v.end - v.start); })]),
+          { boldCell: (i, j) => { const v = j && cell(all[i], j - 1); return !!v && v.dnf == null && v.end - v.start === all[i].b; },
+            color: (i, j) => { const v = j && cell(all[i], j - 1); return !v ? null : v.dnf != null ? pal.stop : v.end - v.start === all[i].b ? ACC : null; },
+            sub: withSub ? (i, j) => { const v = j && cell(all[i], j - 1); if (!v || v.dnf != null) return ''; return v.splits.length ? v.splits.map(sp => fmt(sp - v.start)).join(' · ') : v.laps.length ? t('results.lapsCount', { n: v.laps.length + 1 }) : ''; } : null });
+      }
     }
     y += 4; P.text(M, y + 7, t('analysis.basedOn', { runs: nRuns(fin.length) }) + (C ? ' ' + t('analysis.speedFrom') : ''), { size: 6.5, color: MUTED, max: CW }); y += 10;
     return y;

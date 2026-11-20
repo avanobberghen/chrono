@@ -212,7 +212,7 @@ self.CHRONO_LANGS.en = {
   'export.sectorsHelp': 'Best time on each sector over all runs (bold: fastest of the group). Ideal = sum of the best sectors.',
   'export.sectorsN': { one: '{n} sector', other: '{n} sectors' },
   'export.allRuns': 'Run details',
-  'export.allRunsHelp': 'In order; splits in brackets; best run in colour.',
+  'export.allRunsHelp': 'best run in colour; splits in small type',
   'export.share': 'Share the PDF',
   'export.download': 'Download the PDF',
   'export.preparing': 'Preparing the PDF…',
@@ -275,5 +275,6 @@ self.CHRONO_LANGS.en = {
   'course.activity': 'Whole activity',
   'course.profile': 'Elevation profile of the timed course',
   'course.axis': 'altitude along the course',
-  'course.lap': 'one lap'
+  'course.lap': 'one lap',
+  'export.runN': 'Run {i}'
 };

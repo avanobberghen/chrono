@@ -201,3 +201,5 @@ h2{font:700 12px/1 var(--display);letter-spacing:.09em;text-transform:uppercase;
 .hint.lock{border-style:solid;border-color:var(--line);display:flex;flex-direction:column;gap:8px}
 .hint.lock.on{border-color:var(--split);color:var(--ink)}
 .runs button.mod{color:var(--accent)}
+#course-slot .lmap{height:280px}
+#course-slot.big .lmap{height:72vh}
