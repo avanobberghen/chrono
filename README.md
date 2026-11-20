@@ -124,6 +124,8 @@ Coaches time the runs by hand. A GPS track adds where those runs happened:
 
 On a circuit (start and finish at the same place), lap length replaces course length and passages through the start line become laps.
 
+The **Timed course** part of the GPS tab shows the course alone, taken from the fastest timed run of the rider who carried the device: its start-to-finish length, climb and descent, and an elevation profile (altitude along the course, with the start, split and finish points). On the map, the timed course is drawn thicker than the rest of the activity.
+
 **Map and navigation.** The GPS tab shows the tracks and the course points on a zoomable OpenStreetMap background (pinch or use the + and − buttons; **Enlarge map** gives it most of the screen). Tap a start, split or finish point, on the map or in the **Course points** list, to open it in Google Maps, Apple Maps, Waze, OpenStreetMap or another navigation app, or to copy its coordinates: handy to send a coach to the right spot next time. Without network, the app shows a simple drawing of the tracks instead; the points can still be opened in a navigation app.
 
 Accuracy depends on the device: a passage is placed within about one second with one point per second, which is the usual recording setting. The coaches' times stay the reference; GPS runs are only added when you tap **Add**.
@@ -167,7 +169,7 @@ When riders of a session have categories:
 The **Export** tab of a session creates an A4 PDF, condensed onto a single page (a very large group, where text would become too small, goes over several pages instead) to send to the riders (or their parents) after training. It always contains the club logo and name, the session, a summary and the **ranking** (best, average, slowest time, gap, speed when a GPS track was imported). Tick what else to include:
 
 - **Analysis statistics**: every run on one time axis, comparison by category, and per rider the progress during the session, best sectors and ideal time; laps on a circuit.
-- **Map of the track** (about a quarter of the page) with the start, split and finish points on an OpenStreetMap background (plain background without network), and the course and sector lengths next to it.
+- **Maps**, side by side on an OpenStreetMap background (plain background without network): on the left the **timed course** alone (start to finish, or one lap), with its length, climb, descent, sector lengths and an **elevation profile**; on the right the **whole activity** recorded by the device(s), with the GPS recordings table below it.
 - **GPS recordings**: for each imported `.fit` or `.gpx` file, total distance, duration and climb of the whole recording.
 - **Run details** (off by default, takes more room): every run of every rider, in order, with splits. Pick a category first to make one PDF per age class.
 

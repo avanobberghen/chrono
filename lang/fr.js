@@ -217,7 +217,7 @@ self.CHRONO_LANGS.fr = {
   'export.page': 'Page {i} / {n}',
   'export.runsShort': 'Pass.',
   'export.optAnalysis': 'Statistiques de l\'analyse (passages, écarts, progression, secteurs, tours, catégories)',
-  'export.optMap': 'Carte du tracé, avec sa longueur',
+  'export.optMap': 'Cartes : parcours chronométré avec son profil, et activité complète',
   'export.optTrack': 'Données complètes de l\'enregistrement GPS (distance, durée, dénivelé)',
   'export.noTrack': 'La carte et les données GPS sont disponibles une fois un tracé .fit ou .gpx importé dans l\'onglet GPS.',
   'export.map': 'Carte du parcours',
@@ -263,5 +263,11 @@ self.CHRONO_LANGS.fr = {
   'lock.invalid': 'Temps invalide : écrivez-le comme 1:23.45',
   'lock.fixed': 'Temps corrigé : {name} {time}',
   'lock.added': 'Passage ajouté : {name} {time}',
-  'lock.blocked': 'Session terminée : les résultats sont figés. Un administrateur peut les corriger depuis l\'onglet Résultats.'
+  'lock.blocked': 'Session terminée : les résultats sont figés. Un administrateur peut les corriger depuis l\'onglet Résultats.',
+  'course.title': 'Parcours chronométré',
+  'course.length': 'Longueur départ → arrivée',
+  'course.activity': 'Activité complète',
+  'course.profile': 'Profil d\'altitude du parcours chronométré',
+  'course.axis': 'altitude le long du parcours',
+  'course.lap': 'un tour'
 };

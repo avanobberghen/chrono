@@ -223,7 +223,7 @@ self.CHRONO_LANGS.en = {
   'export.page': 'Page {i} / {n}',
   'export.runsShort': 'Runs',
   'export.optAnalysis': 'Analysis statistics (every run, gaps, progress, sectors, laps, categories)',
-  'export.optMap': 'Map of the track, with its length',
+  'export.optMap': 'Maps: timed course with its profile, and the whole activity',
   'export.optTrack': 'Full GPS recording data (distance, duration, climb)',
   'export.noTrack': 'Map and GPS data become available once a .fit or .gpx track is imported in the GPS tab.',
   'export.map': 'Map of the course',
@@ -269,5 +269,11 @@ self.CHRONO_LANGS.en = {
   'lock.invalid': 'Invalid time: write it like 1:23.45',
   'lock.fixed': 'Time corrected: {name} {time}',
   'lock.added': 'Run added: {name} {time}',
-  'lock.blocked': 'Session over: results are frozen. An admin can correct them from the Results tab.'
+  'lock.blocked': 'Session over: results are frozen. An admin can correct them from the Results tab.',
+  'course.title': 'Timed course',
+  'course.length': 'Start → finish length',
+  'course.activity': 'Whole activity',
+  'course.profile': 'Elevation profile of the timed course',
+  'course.axis': 'altitude along the course',
+  'course.lap': 'one lap'
 };
