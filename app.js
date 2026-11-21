@@ -414,7 +414,7 @@ function results(s) {
     return `<li><details class="res"><summary><span class="pos">${ts.length ? i + 1 : '–'}</span><div class="who"><b>${esc(rname(r))}</b><small>${[nRuns(ts.length), nd ? t('chrono.dnfCount', { n: nd }) : '', rcat(r) ? esc(rcat(r)) : '', t('results.details')].filter(Boolean).join(' · ')}</small></div>
       ${ts.length ? `<div class="stats"><span>${t('results.best')}</span><span>${t('results.avg')}</span><span>${t('results.max')}</span><b class="best">${fmt(Math.min(...ts))}</b><b>${fmt(avg)}</b><b>${fmt(Math.max(...ts))}</b></div>` : `<b class="dnftag">${t('btn.dnf')}</b>`}</summary>
       <div class="runs">${runs.map((x, k) => { const ex = [...x.splits.map((v, j) => t('results.splitN', { i: j + 1, time: fmt(v - x.start) })), ...x.laps.map((v, j) => t('results.lapN', { i: j + 1, time: fmt(v - (x.laps[j - 1] ?? x.start)) }))];
-        const tools = ed ? `${editing(s) ? `<button data-act="runedit" data-id="${x.id}" class="mod">${t('lock.modify')}</button>` : ''}<button data-act="delrun" data-id="${x.id}">${t('results.delete')}</button>` : '';
+        const tools = ed ? `${editing(s) ? `<button data-act="runedit" data-id="${x.id}" class="mod">${t('lock.modify')}</button>` : ''}${x.dnf == null ? `<button data-act="rundnf" data-id="${x.id}" class="dnfbtn">${t('btn.dnf')}</button>` : ''}<button data-act="delrun" data-id="${x.id}">${t('results.delete')}</button>` : '';
         if (x.dnf != null) return `<div><span>${k + 1}.</span><b class="dnftag">${t('btn.dnf')}</b><em>${t('results.dnfAfter', { time: fmt(x.dnf - x.start) })}${ex.length ? ' · ' + ex.join(' · ') : ''}</em>${tools}</div>`;
         return `<div><span>${k + 1}.</span><b>${fmt(x.end - x.start)}</b><em>${ex.join(' · ')}</em>${tools}</div>`; }).join('')}</div></details></li>`; }).join('')}</ul>
   <div class="tools"><button class="ghost" data-act="csv">${t('results.exportCsv')}</button><button class="ghost" data-act="copy">${t('results.copy')}</button></div>`;
@@ -1321,6 +1321,7 @@ const A = {
   editres() { if (!isAdmin()) return; ui.editSid = ui.editSid === ui.sid ? null : ui.sid; },
   runedit(d) { if (!guard()) return; ui.runId = d.id; ui.sheet = 'runedit'; },
   runadd() { if (!guard()) return; ui.sheet = 'runadd'; },
+  rundnf(d) { ui.runId = d.id; A.runtodnf(); },
   runtodnf() { const x = R.find(q => q.id === ui.runId); if (!x || !guard()) return; const c = closing(x), ev = []; if (c) ev.push(emit('void', x.riderId, now(), c.id)); ev.push(emit('finish', x.riderId, x.end != null ? x.end : now(), x.id)); ui.undo = ev; ui.sheet = null; toast(t('toast.dnf', { name: rname(x.riderId) }), undoBtn()); },
   // Share must be called right after the tap: the PDF is already prepared (see prepareExport).
   pdfshare() { const p = ui.pdf; if (!p) return; const file = new File([p.bytes], p.name, { type: 'application/pdf' });
