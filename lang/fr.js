@@ -270,5 +270,7 @@ self.CHRONO_LANGS.fr = {
   'course.profile': 'Profil d\'altitude du parcours chronométré',
   'course.axis': 'altitude le long du parcours',
   'course.lap': 'un tour',
-  'export.runN': 'Passage {i}'
+  'export.runN': 'Passage {i}',
+  'sheet.removeGroup': '− Retirer tout « {group} »',
+  'toast.ridersRemoved': { one: '{riders} retiré de la session', other: '{riders} retirés de la session' }
 };

@@ -276,5 +276,7 @@ self.CHRONO_LANGS.en = {
   'course.profile': 'Elevation profile of the timed course',
   'course.axis': 'altitude along the course',
   'course.lap': 'one lap',
-  'export.runN': 'Run {i}'
+  'export.runN': 'Run {i}',
+  'sheet.removeGroup': '− Remove all of “{group}”',
+  'toast.ridersRemoved': '{riders} removed from the session'
 };

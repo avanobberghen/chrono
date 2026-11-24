@@ -1194,7 +1194,7 @@ function sheet() {
     <button class="ghost" data-act="copycoords">${t('nav.copy')}</button><button class="primary" data-act="close">${t('common.done')}</button></div></div>`; }
   if (ui.sheet === 'people') { const s = cur(); if (!s) return ''; return `<div class="veil"><div class="sheet"><h3>${t('chrono.peopleBtn')}</h3>
     <div class="field">${t('sheet.addRider')}<input id="q" placeholder="${t('sheet.typeName')}" autocomplete="off"></div><div class="sugg" id="sugg">${sugg('')}</div>
-    <ul class="list">${s.rider_ids.map(r => `<li class="line"><span class="grow">${esc(rname(r))}</span><button data-act="rmrider" data-id="${r}">${t('common.remove')}</button></li>`).join('')}</ul>
+    ${rmChips(s)}<ul class="list">${s.rider_ids.map(r => `<li class="line"><span class="grow">${esc(rname(r))}</span><button data-act="rmrider" data-id="${r}">${t('common.remove')}</button></li>`).join('')}</ul>
     <div class="field">${t('sheet.name')}<input id="e-name" value="${esc(s.name)}" autocomplete="off"></div>
     <div class="field">${t('sheet.date')}<input id="e-date" type="date" value="${esc(s.date)}" ${locked(s) && !isAdmin() ? 'disabled' : ''}></div>
     <button class="primary" data-act="close">${t('common.done')}</button>
@@ -1203,6 +1203,13 @@ function sheet() {
 }
 // Suggestions for the group and category fields
 const lists = () => `<datalist id="grp-list">${[...new Set(db.riders.map(r => r.grp).filter(Boolean))].sort(byNat).map(g => `<option value="${esc(g)}">`).join('')}</datalist><datalist id="cat-list">${[...new Set(db.riders.map(r => r.category).filter(Boolean))].sort(byNat).map(c => `<option value="${esc(c)}">`).join('')}</datalist>`;
+// Chips to remove a whole group or category from the session's riders
+function rmChips(s) {
+  const rs = s.rider_ids.map(id => db.riders.find(r => r.id === id)).filter(Boolean);
+  const groups = [...new Set(rs.map(r => r.grp).filter(Boolean))].sort(byNat), cats = [...new Set(rs.map(r => r.category).filter(Boolean))].sort(byNat);
+  if (!groups.length && !cats.length) return '';
+  return `<div class="sugg">${groups.map(g => `<button class="chip rm" data-act="rmgroup" data-id="${esc(g)}">${t('sheet.removeGroup', { group: esc(g) })}</button>`).join('')}${cats.map(c => `<button class="chip rm" data-act="rmcat" data-id="${esc(c)}">${t('sheet.removeGroup', { group: esc(c) })}</button>`).join('')}</div>`;
+}
 function sugg(q) {
   const s = cur(), n = q.trim().toLowerCase(), pool = db.riders.filter(r => r.active !== false && !s.rider_ids.includes(r.id)), groups = [...new Set(pool.map(r => r.grp).filter(Boolean))].sort();
   const list = pool.filter(r => r.name.toLowerCase().includes(n)).sort((a, b) => a.name.localeCompare(b.name, LOC)).slice(0, n ? 8 : 16);
@@ -1236,6 +1243,9 @@ function toast(msg, btn, ms) {
 const undoBtn = () => ({ act: 'undo', label: t('common.undo') });
 const tapTs = () => (downTs && now() - downTs < 1500) ? downTs : now();
 const setRiders = (s, ids) => { s.rider_ids = ids; save('sessions'); queue({ k: 'upd', t: 'sessions', id: s.id, patch: { rider_ids: ids } }); };
+// Removes the session's riders that match; their times stay in the results
+function removeRiders(match) { const s = cur(), out = s.rider_ids.filter(id => { const r = db.riders.find(x => x.id === id); return r && match(r); }); if (!out.length) return;
+  setRiders(s, s.rider_ids.filter(id => !out.includes(id))); if (db.pend[s.id]) { out.forEach(id => delete db.pend[s.id][id]); save('pend'); } toast(t('toast.ridersRemoved', { riders: nRiders(out.length), n: out.length })); }
 const addRider = (name, grp, cat) => { const r = { id: uuid(), name, grp: grp || '', active: true }; if (cat) r.category = cat; db.riders.push(r); save('riders'); queue({ k: 'ins', t: 'riders', row: r }); return r; };
 function download(name, text) {
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['﻿' + text], { type: 'text/csv;charset=utf-8' })); a.download = name;
@@ -1331,6 +1341,8 @@ const A = {
   editrider(d) { ui.edit = d.id; ui.sheet = 'rider'; },
   addgroup(d) { const s = cur(), add = db.riders.filter(r => r.active !== false && r.grp === d.id && !s.rider_ids.includes(r.id)).sort((a, b) => a.name.localeCompare(b.name, LOC)).map(r => r.id); setRiders(s, [...s.rider_ids, ...add]); },
   addnew() { const n = $('q').value.trim(); if (!n) return; const r = addRider(n, ''), s = cur(); setRiders(s, [...s.rider_ids, r.id]); },
+  rmgroup(d) { removeRiders(r => r.grp === d.id); },
+  rmcat(d) { removeRiders(r => r.category === d.id); },
   rmrider(d) { const s = cur(); setRiders(s, s.rider_ids.filter(r => r !== d.id)); if (db.pend[s.id]) { delete db.pend[s.id][d.id]; save('pend'); } },
   delyouth(d) { const r = db.riders.find(r => r.id === d.id); if (!r) return; r.active = false; save('riders'); queue({ k: 'upd', t: 'riders', id: r.id, patch: { active: false } }); toast(t('toast.riderRemoved', { name: r.name })); },
   async delcoach(d) { const { error } = await sb.from('allowed_users').delete().eq('email', d.id); if (error) toast(isNetErr(error) ? t('toast.retryLater') : t('toast.refused', { msg: error.message })); await pullCoaches(); render(); },
