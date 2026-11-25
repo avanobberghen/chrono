@@ -515,12 +515,14 @@ function manualCourse(sid) {
   const tk = tracksOf(sid).find(x => x.id === man.track); if (!tk || man.start == null || man.finish == null) return null;
   const P = tk.pts, c = cum(P), n = P.length, ok = i => i >= 0 && i < n, circuit = hav(P[man.start], P[man.finish]) < 30;
   if (!ok(man.start) || !ok(man.finish)) return null;
-  let i0 = Math.min(man.start, man.finish), i1 = Math.max(man.start, man.finish), lap = null;
-  if (circuit) {   // one lap: leave the start by at least 60 m, then come back within 20 m
-    i0 = man.start; let far = false; i1 = null;
-    for (let j = i0 + 1; j < n; j++) { const dd = hav(P[i0], P[j]); if (dd > 60) far = true; else if (far && dd < 20) { i1 = j; break; } }
-    if (i1 == null) return null; lap = c[i1] - c[i0];
+  let i0 = man.start, i1 = man.finish, lap = null;
+  if (i1 <= i0 || c[i1] - c[i0] < 60) {   // finish not after the start (older points): take the first return near the start
+    if (!circuit) { i0 = Math.min(man.start, man.finish); i1 = Math.max(man.start, man.finish); }
+    else { let far = false, best = null; i1 = null;
+      for (let j = i0 + 1; j < n; j++) { const dd = hav(P[i0], P[j]); if (dd > 60) { if (best != null) break; far = true; } else if (far && dd < 35 && (best == null || dd < best)) { best = dd; i1 = j; } }
+      if (i1 == null) return null; }
   }
+  if (circuit) lap = c[i1] - c[i0];
   const splits = (man.splits || []).filter(i => ok(i) && i > i0 && i < i1).sort((a, b) => a - b);
   const keys = [['start', i0], ...splits.map((i, k) => ['split' + (k + 1), i]), ['finish', circuit ? i0 : i1]];
   const gates = keys.map(([key, i]) => ({ key, lat: P[i][0], lon: P[i][1], n: 1 }));
@@ -586,8 +588,18 @@ function placeBar() {
 function placeAt(ll) {
   const p = ui.place; if (!p) return;
   const tk = tracksOf(ui.sid).find(x => x.id === p.track); if (!tk) return;
-  let best = -1, bd = Infinity; tk.pts.forEach((q, i) => { const d = hav([ll.lat, ll.lng], q); if (d < bd) { bd = d; best = i; } });
+  // The same place can be passed several times (a loop, several laps): keep one point per pass near the tap,
+  // then take the first pass in the right order (finish after the start, split between them).
+  const P = tk.pts, c = cum(P), D = P.map(q => hav([ll.lat, ll.lng], q)), bd = Math.min(...D);
   if (bd > 150) { toast(t('place.tooFar')); return; }
+  const passes = []; let cur = null;
+  D.forEach((d, i) => { if (d <= bd + 15) { if (cur && i === cur.last + 1) { cur.last = i; if (d < D[cur.i]) cur.i = i; } else passes.push(cur = { i, last: i }); } else cur = null; });
+  const pick = ok => (passes.find(x => ok(x.i)) || {}).i;
+  let best;
+  if (p.step === 'start') best = pick(() => true);
+  else if (p.step === 'finish') best = pick(i => i > p.start && c[i] - c[p.start] > 60);
+  else best = pick(i => i > p.start && (p.finish == null || i < p.finish));
+  if (best == null) { toast(t(p.step === 'finish' ? 'place.afterStart' : 'place.between')); return; }
   if (p.step === 'start') { p.start = best; p.step = 'finish'; }
   else if (p.step === 'finish') { p.finish = best; p.step = 'done'; }
   else if (p.step === 'split') { p.splits.push(best); p.step = 'done'; }

@@ -284,6 +284,8 @@ self.CHRONO_LANGS.fr = {
   'place.start': 'Touchez le tracé sur la carte à l\'endroit du départ.',
   'place.finish': 'Touchez maintenant l\'arrivée (au même endroit que le départ pour un circuit).',
   'place.split': 'Touchez l\'emplacement de l\'inter.',
+  'place.afterStart': 'Aucun passage ici après le départ : touchez l\'arrivée plus loin sur le tracé.',
+  'place.between': 'Aucun passage ici entre le départ et l\'arrivée.',
   'place.done': 'Départ et arrivée placés. Ajoutez des inters si besoin, puis enregistrez.',
   'place.addSplit': 'Ajouter un inter',
   'place.save': 'Enregistrer les points',

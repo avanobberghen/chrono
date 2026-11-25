@@ -290,6 +290,8 @@ self.CHRONO_LANGS.en = {
   'place.start': 'Tap the track on the map where the start is.',
   'place.finish': 'Now tap the finish (at the same spot as the start for a circuit).',
   'place.split': 'Tap where the split is.',
+  'place.afterStart': 'No passage here after the start: tap the finish further along the track.',
+  'place.between': 'No passage here between the start and the finish.',
   'place.done': 'Start and finish placed. Add splits if needed, then save.',
   'place.addSplit': 'Add a split',
   'place.save': 'Save the points',
