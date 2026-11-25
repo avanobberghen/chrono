@@ -154,7 +154,7 @@ self.CHRONO_LANGS.en = {
   'analysis.topSpeed': 'Best average speed',
   'analysis.onBestRun': 'on the fastest run',
   'analysis.spread': 'Spread',
-  'analysis.spreadSub': 'fastest to slowest best',
+  'analysis.spreadSub': 'between first and last in the ranking',
   'analysis.everyRun': 'Every run',
   'analysis.everyRunHelp': 'Each dot is a run, the filled dot is the rider\'s best, the grey bar their average. Tight groups mean consistent riding.',
   'analysis.runN': 'Run {i}',

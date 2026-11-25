@@ -1068,7 +1068,8 @@ async function buildReport(s, opt) {
 
 /* Export tab. The PDF is prepared as soon as the tab opens and again after each change, so that
    "Share" can hand it to the phone straight away (phones only allow sharing right after a tap). */
-const expSig = s => [s.id, ui.cat, JSON.stringify(ui.exp), LANG, (db.events[s.id] || []).length, tracksOf(s.id).map(tk => tk.id + tk.riderId).join(','), db.riders.length].join('|');
+// Everything the PDF shows: when any of it changes, the PDF is prepared again
+const expSig = s => [s.id, s.name, s.date, s.rider_ids.join(','), ui.cat, JSON.stringify(ui.exp), LANG, (db.events[s.id] || []).length, tracksOf(s.id).map(tk => tk.id + tk.riderId + tk.pts.length).join(','), db.riders.map(r => r.id + r.name + (r.category || '') + (r.active === false ? '-' : '')).join(',')].join('|');
 function exportView(s) {
   const fin = R.filter(x => x.end != null && inCat(x.riderId)), nS = Math.max(0, ...fin.map(x => x.splits.length)), cats = catsOf(fin.map(x => x.riderId));
   const o = ui.exp, ready = ui.pdf && ui.pdf.sig === expSig(s), hasTracks = tracksOf(s.id).length > 0;

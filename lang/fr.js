@@ -148,7 +148,7 @@ self.CHRONO_LANGS.fr = {
   'analysis.topSpeed': 'Meilleure vitesse moy.',
   'analysis.onBestRun': 'sur le passage le plus rapide',
   'analysis.spread': 'Écart',
-  'analysis.spreadSub': 'entre meilleurs temps extrêmes',
+  'analysis.spreadSub': 'entre le 1er et le dernier du classement',
   'analysis.everyRun': 'Tous les passages',
   'analysis.everyRunHelp': 'Chaque point est un passage, le point plein est le meilleur du coureur, le trait gris sa moyenne. Des points serrés indiquent un pilotage régulier.',
   'analysis.runN': 'Passage {i}',
