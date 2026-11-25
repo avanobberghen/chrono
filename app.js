@@ -766,7 +766,7 @@ function drawMap(m, tracks, C, seg, only) {
   if (ptk) [['start', p.start], ['finish', p.finish], ...p.splits.map((i, k) => ['split' + (k + 1), i])].forEach(([key, i]) => { if (i == null) return;
     LF.circleMarker([ptk.pts[i][0], ptk.pts[i][1]], { radius: 12, color: '#fff', weight: 3, fillColor: col(key === 'start' ? 'go' : key === 'finish' ? 'stop' : 'split'), fillOpacity: 1, bubblingMouseEvents: false })
       .bindTooltip(esc(gateShort(key)), { permanent: true, direction: 'top', offset: [0, -12], className: 'gtip' }).addTo(m.group); });
-  if (all.length) m.map.fitBounds(LF.latLngBounds(all), { padding: only ? [22, 22] : [28, 28], maxZoom: 18 });
+  if (all.length) m.map.fitBounds(LF.latLngBounds(all), { padding: [38, 38], maxZoom: 18 });
 }
 const isIOS = () => /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 // Links that open a point in a navigation app. Each app opens if installed, otherwise its web page.
@@ -858,17 +858,17 @@ function loadLogo() {
 const fmtDur = ms => { const m = Math.round(ms / 60000); return m >= 60 ? Math.floor(m / 60) + ' h ' + String(m % 60).padStart(2, '0') : m + ' min'; };
 /* Map picture for the PDF: map tiles (when the network allows) with the tracks and course points
    drawn on top, as one JPEG. Without network the tracks are drawn on a plain background. */
-function mapImage(tracks, C, W, H, fill) {
+function mapImage(tracks, C, W, H, mg) {
   return new Promise(resolve => {
     const pts = tracks.flatMap(tk => trackStats(tk.pts).xy).concat(C ? C.gates.map(g => [g.lat, g.lon]) : []); if (!pts.length) return resolve(null);
     const X = (lon, z) => (lon + 180) / 360 * 256 * 2 ** z, Y = (lat, z) => { const sn = Math.sin(lat * RAD); return (.5 - Math.log((1 + sn) / (1 - sn)) / (4 * Math.PI)) * 256 * 2 ** z; };
     const la = pts.map(p => p[0]), lo = pts.map(p => p[1]), la0 = Math.min(...la), la1 = Math.max(...la), lo0 = Math.min(...lo), lo1 = Math.max(...lo);
     // Largest tile zoom where the track fits, then a scale between 1 and 2 so it fills the frame (fill = share of the frame used)
-    const fw = (fill || .84) * W, fh = (fill || .84) * H * .94; let z = Math.min(17, MAP.maxZoom || 17);
+    const fw = W - 2 * mg, fh = H - 2 * mg; let z = Math.min(17, MAP.maxZoom || 17);
     while (z > 1 && (X(lo1, z) - X(lo0, z) > fw || Y(la0, z) - Y(la1, z) > fh)) z--;
     const bw = X(lo1, z) - X(lo0, z), bh = Y(la0, z) - Y(la1, z), k = Math.max(1, Math.min(1.98, bw ? fw / bw : 2, bh ? fh / bh : 2));
     const PX = lon => X(lon, z) * k, PY = lat => Y(lat, z) * k, TS = 256 * k;
-    const ox = (PX(lo0) + PX(lo1)) / 2 - W / 2, oy = (PY(la0) + PY(la1)) / 2 - H / 2 + H * .03;
+    const ox = (PX(lo0) + PX(lo1)) / 2 - W / 2, oy = (PY(la0) + PY(la1)) / 2 - H / 2;
     const cv = document.createElement('canvas'); cv.width = W; cv.height = H; const cx = cv.getContext('2d');
     cx.fillStyle = '#EEF2F6'; cx.fillRect(0, 0, W, H);
     const css = getComputedStyle(document.documentElement), pal = Object.assign({ accent: '#2A5684', muted: '#55687F', go: '#16794A', stop: '#C33A2F', split: '#8A6A00' }, SET.light || {});
@@ -910,9 +910,10 @@ async function buildReport(s, opt) {
   const tracks = tracksOf(s.id).filter(tk => tk.pts.length > 1);
   // Visual block of the two map columns: on the left the course map (3/4) above its elevation profile (1/4),
   // on the right the whole activity over the same height.
-  const seg = C ? courseSegment(s.id, C) : null, COLW = (595.28 - 2 * 36 - 14) / 2, VIS = 190, CMH = Math.round(VIS * .75), PRH = VIS - CMH - 4;
-  const courseImg = opt.map && seg ? await mapImage([{ pts: seg.pts, riderId: seg.riderId, ref: true }], C, 1000, Math.round(1000 * CMH / COLW), .95) : null;
-  const allImg = opt.map && tracks.length ? await mapImage(tracks, C, 1000, Math.round(1000 * (seg ? VIS : CMH) / COLW)) : null;
+  const seg = C ? courseSegment(s.id, C) : null, COLW = (595.28 - 2 * 36 - 14) / 2, VIS = 190, CMH = Math.round(VIS * .75), PRH = VIS - CMH - 4, CM = Math.round(1000 * 28.35 / COLW);
+  const courseImg = opt.map && seg ? await mapImage([{ pts: seg.pts, riderId: seg.riderId, ref: true }], C, 1000, Math.round(1000 * CMH / COLW), CM) : null;
+  const allImg = opt.map && tracks.length ? await mapImage(tracks, C, 1000, Math.round(1000 * (seg ? VIS : CMH) / COLW), CM) : null;
+  // CM: 1 cm (28.35 pt) expressed in image pixels
   const title = s.name + ' · ' + fDate(s.date) + (ui.cat ? ' · ' + ui.cat : '');
   const sec = v => num(v / 1000, 2) + ' s', M = 36, FOOT = 40;
 
@@ -1404,7 +1405,7 @@ const A = {
   mapbig() { ui.mapBig = !ui.mapBig; },
   copycoords() { const C = course(ui.sid), g = C && C.gates.find(x => x.key === ui.nav); if (!g) return; const v = g.lat.toFixed(6) + ', ' + g.lon.toFixed(6);
     try { navigator.clipboard.writeText(v).then(() => toast(t('nav.copied')), () => toast(v, null, 10000)); } catch (e) { toast(v, null, 10000); } },
-  placestart(d) { ui.place = { track: d.id, step: 'start', start: null, finish: null, splits: [] }; ui.mapBig = true; loadLeaflet(); setTimeout(() => { const el = $('placebar'); if (el && el.scrollIntoView) el.scrollIntoView({ block: 'start', behavior: 'smooth' }); }, 60); },
+  placestart(d) { ui.place = { track: d.id, step: 'start', start: null, finish: null, splits: [] }; ui.mapBig = false; loadLeaflet(); setTimeout(() => { const el = $('placebar'); if (el && el.scrollIntoView) el.scrollIntoView({ block: 'start', behavior: 'smooth' }); }, 60); },
   placesplit() { if (ui.place) ui.place.step = 'split'; },
   placecancel() { ui.place = null; },
   placesave() { const p = ui.place; if (!p || p.start == null || p.finish == null) return; const g = db.gpx[ui.sid]; g.manual = { track: p.track, start: p.start, finish: p.finish, splits: p.splits };
