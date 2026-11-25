@@ -278,5 +278,11 @@ self.CHRONO_LANGS.en = {
   'course.lap': 'one lap',
   'export.runN': 'Run {i}',
   'sheet.removeGroup': '− Remove all of “{group}”',
-  'toast.ridersRemoved': '{riders} removed from the session'
+  'toast.ridersRemoved': '{riders} removed from the session',
+  'dup.button': 'Duplicate',
+  'dup.title': 'Duplicate the session',
+  'dup.help': 'The new session gets the same {riders}, without any time.',
+  'dup.copyName': '{name} (copy)',
+  'dup.create': 'Create the copy',
+  'dup.done': 'Session “{name}” created'
 };

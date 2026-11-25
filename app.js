@@ -402,7 +402,7 @@ function chrono(s) {
   const n = ui.sel.length, multi = canStart && idle.length ? `<div class="tools"><button class="ghost" data-act="multi">${t(ui.multi ? 'chrono.leaveGroup' : 'chrono.groupStart')}</button>${ui.multi ? `<button class="ghost" data-act="pickall">${t('chrono.selectAll')}</button>` : ''}</div>` : '';
   const bar = ui.multi && canStart ? `<div class="gobar"><button class="act go" data-act="startsel" ${n ? '' : 'disabled'}>${n ? t('chrono.startN', { riders: nRiders(n) }) : t('chrono.selectRiders')}</button></div>` : '';
   return `${lockMsg}${wait}${multi}<ul class="list tight">${order.map(row).join('') || `<li class="hint">${t('chrono.noRiders')}</li>`}</ul>
-  <div class="tools"><button class="ghost" data-act="people">${t('chrono.peopleBtn')}</button><button class="ghost" data-act="archive">${t(s.archived ? 'chrono.unarchive' : 'chrono.archive')}</button></div>${bar}`;
+  <div class="tools"><button class="ghost" data-act="people">${t('chrono.peopleBtn')}</button><button class="ghost" data-act="dup">${t('dup.button')}</button><button class="ghost" data-act="archive">${t(s.archived ? 'chrono.unarchive' : 'chrono.archive')}</button></div>${bar}`;
 }
 
 function results(s) {
@@ -1169,6 +1169,11 @@ function analysis(s) {
 
 /* ---------- sheets ---------- */
 function sheet() {
+  if (ui.sheet === 'dup') { const s = cur(); if (!s) return '';
+    return `<div class="veil"><form class="sheet" data-form="dup"><h3>${t('dup.title')}</h3><div class="note">${t('dup.help', { riders: nRiders(s.rider_ids.length) })}</div>
+    <div class="field">${t('sheet.name')}<input id="d-name" value="${esc(t('dup.copyName', { name: s.name }))}" autocomplete="off" required></div>
+    <div class="field">${t('sheet.date')}<input id="d-date" type="date" value="${today()}"></div>
+    <button class="primary" type="submit">${t('dup.create')}</button><button type="button" class="ghost" data-act="close">${t('common.cancel')}</button></form></div>`; }
   if (ui.sheet === 'new') return `<div class="veil"><form class="sheet" data-form="new"><h3>${t('sheet.newTitle')}</h3>
     <div class="field">${t('sheet.name')}<input id="n-name" placeholder="${t('sheet.namePlaceholder')}" autocomplete="off"></div>
     <div class="field">${t('sheet.date')}<input id="n-date" type="date" value="${today()}"></div>
@@ -1288,7 +1293,7 @@ const A = {
     try { await swReg.update(); } catch (e) { toast(t('auth.noNetwork')); return; }
     setTimeout(() => { if (!updateFound) toast(t('update.latest')); }, 2500);
   },
-  new() { ui.sheet = 'new'; }, close() { ui.sheet = null; ui.confirmDel = false; }, people() { ui.sheet = 'people'; ui.confirmDel = false; },
+  new() { ui.sheet = 'new'; }, dup() { ui.sheet = 'dup'; }, close() { ui.sheet = null; ui.confirmDel = false; }, people() { ui.sheet = 'people'; ui.confirmDel = false; },
   arch() { ui.showArch = !ui.showArch; },
   archive() { const s = cur(); s.archived = !s.archived; save('sessions'); queue({ k: 'upd', t: 'sessions', id: s.id, patch: { archived: s.archived } }); if (s.archived) { A.home(); toast(t('toast.archived')); } else toast(t('toast.unarchived')); },
   delsession() { if (!ui.confirmDel) { ui.confirmDel = true; return; } const id = ui.sid; db.sessions = db.sessions.filter(s => s.id !== id); delete db.events[id]; delete db.gpx[id]; delete db.pend[id]; save('sessions', 'events', 'gpx', 'pend'); queue({ k: 'del', t: 'sessions', id }); A.home(); toast(t('toast.sessionDeleted')); },
@@ -1381,6 +1386,9 @@ const F = {
     ui.busy = false; if (ui.view === 'login') render();
   },
   async newpass() { const { error } = await sb.auth.updateUser({ password: $('np').value }); if (error) { toast(t('auth.refused', { msg: error.message })); return; } ui.view = db.me ? 'home' : 'login'; render(); toast(t('toast.passwordSaved')); const { data } = await sb.auth.getSession(); if (data && data.session) afterLogin(data.session.user); },
+  // New session with the same riders, no times
+  dup() { const src = cur(); if (!src) return; const s = { id: uuid(), name: $('d-name').value.trim() || src.name, date: $('d-date').value || today(), archived: false, rider_ids: [...src.rider_ids] };
+    db.sessions.push(s); save('sessions'); queue({ k: 'ins', t: 'sessions', row: { ...s, gpx: null } }); ui.sheet = null; A.open({ id: s.id }); render(); toast(t('dup.done', { name: s.name })); },
   new() { const s = { id: uuid(), name: $('n-name').value.trim() || t('sheet.untitled'), date: $('n-date').value || today(), archived: false, rider_ids: [] }; db.sessions.push(s); save('sessions'); queue({ k: 'ins', t: 'sessions', row: { ...s, gpx: null } }); A.open({ id: s.id }); ui.sheet = 'people'; render(); },
   youth() { const n = $('new-youth').value.trim(), g = $('new-grp').value.trim(), c = $('new-cat').value.trim(); if (!n) return; if (db.riders.some(r => r.active !== false && r.name.toLowerCase() === n.toLowerCase())) { toast(t('toast.riderExists', { name: n })); return; } addRider(n, g, c); render(); $('new-youth').focus(); },
   rider() { const r = db.riders.find(x => x.id === ui.edit); if (!r) return; const p = { name: $('r-name').value.trim() || r.name, grp: $('r-grp').value.trim() }, c = $('r-cat').value.trim();

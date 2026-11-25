@@ -272,5 +272,11 @@ self.CHRONO_LANGS.fr = {
   'course.lap': 'un tour',
   'export.runN': 'Passage {i}',
   'sheet.removeGroup': '− Retirer tout « {group} »',
-  'toast.ridersRemoved': { one: '{riders} retiré de la session', other: '{riders} retirés de la session' }
+  'toast.ridersRemoved': { one: '{riders} retiré de la session', other: '{riders} retirés de la session' },
+  'dup.button': 'Dupliquer',
+  'dup.title': 'Dupliquer la session',
+  'dup.help': 'La nouvelle session reprend les mêmes {riders}, sans aucun temps.',
+  'dup.copyName': '{name} (copie)',
+  'dup.create': 'Créer la copie',
+  'dup.done': 'Session « {name} » créée'
 };
