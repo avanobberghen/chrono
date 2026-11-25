@@ -932,7 +932,8 @@ async function buildReport(s, opt) {
   const draw = (P, single) => {
     const CW = P.W - 2 * M, BOTTOM = single ? Infinity : P.A4 - FOOT - 8; let y = M;
     const newPage = () => { P.page(); y = M; };
-    const room = h => { if (y + h > BOTTOM) { newPage(); return true; } return false; };
+    let inSide = false;
+    const room = h => { if (inSide) return false; if (y + h > BOTTOM) { newPage(); return true; } return false; };
     const heading = (txt, x, w, sub) => { x = x == null ? M : x; w = w || CW; y += 9; P.text(x, y + 7, txt.toUpperCase(), { size: 7.5, bold: true, color: ACC }); if (sub) P.text(x + w, y + 7, sub, { size: 6.5, color: MUTED, align: 'right', max: w - P.width(txt.toUpperCase(), 7.5, true) - 12 }); y += 10; P.line(x, y, x + w, y, { color: ACC, lw: .8 }); y += 3; };
     // Compact table; columns without w share the remaining width. Breaks across pages only in full width.
     const table = (cols, rows, o) => {
@@ -955,9 +956,10 @@ async function buildReport(s, opt) {
       y += 2;
     };
     // Two blocks side by side (single page), or one under the other (several pages)
-    const side = (leftW, left, right) => {
-      if (!single) { left(M, CW); right(M, CW); return; }
-      const y0 = y; left(M, leftW); const y1 = y; y = y0; right(M + leftW + 14, CW - leftW - 14); y = Math.max(y, y1);
+    const side = (leftW, left, right, est) => {
+      // Over several pages too: move to a new page first if the block doesn't fit, then lay out both columns
+      if (!single) { room(est); inSide = true; }
+      const y0 = y; left(M, leftW); const y1 = y; y = y0; right(M + leftW + 14, CW - leftW - 14); y = Math.max(y, y1); inSide = false;
     };
 
     newPage();
@@ -1002,7 +1004,7 @@ async function buildReport(s, opt) {
     const gpsTable = (x, w) => {
       heading(t('export.trackData'), x, w);
       table([{ label: t('export.totalDistance'), align: 'right' }, { label: t('export.totalDuration'), align: 'right' }, { label: t('gpx.climb'), align: 'right' }],
-        tracks.map(tk => { const st = trackStats(tk.pts); return [metres(st.dist), st.dur ? fmtDur(st.dur) : '–', Math.round(st.up) + ' m']; }), { x: single ? x : null, w });
+        tracks.map(tk => { const st = trackStats(tk.pts); return [metres(st.dist), st.dur ? fmtDur(st.dur) : '–', Math.round(st.up) + ' m']; }), { x: single || inSide ? x : null, w });
     };
     const mapBox = (img, x, w) => { const h = w * img.h / img.w; if (!single) room(h + 8); P.image(img, x, y, w, h); P.rect(x, y, w, h, { stroke: LINE, lw: .5 }); if (img.tiles) P.text(x + w - 3, y + h - 3, '© OpenStreetMap contributors', { size: 5, color: MUTED, align: 'right' }); y += h + 4; };
     const profilePdf = (x, w, h) => {
@@ -1033,7 +1035,7 @@ async function buildReport(s, opt) {
       if (allImg) mapBox(allImg, x, w);
       if (opt.track) { y -= 6; gpsTable(x, w); }
     };
-    if (opt.map && tracks.length) side((CW - 14) / 2, left, right);
+    if (opt.map && tracks.length) side((CW - 14) / 2, left, right, 24 + VIS + 4 + (4 + (C ? Object.keys(C.seg).length : 0)) * 10.5 + 14);
     else if (opt.track && tracks.length) gpsTable(M, CW);
 
     if (opt.analysis) {
@@ -1058,7 +1060,7 @@ async function buildReport(s, opt) {
         axis();
       };
       const catTable = (x, w) => { heading(t('analysis.byCategory'), x, w); table([{ label: t('cat.label'), bold: true }, { label: t('analysis.ridersCol'), w: 34, align: 'right' }, { label: t('results.best'), w: 44, align: 'right', bold: true }, { label: t('export.typical'), w: 44, align: 'right' }],
-        catsAll.map(c => { const rs = riders.filter(r => rcat(r) === c), b = rs.map(bestOf); return [c, String(rs.length), fmt(b[0]), fmt(med(b))]; }), { x: single ? x : null, w }); };
+        catsAll.map(c => { const rs = riders.filter(r => rcat(r) === c), b = rs.map(bestOf); return [c, String(rs.length), fmt(b[0]), fmt(med(b))]; }), { x: single || inSide ? x : null, w }); };
       if (catsAll.length > 1) side(CW * .64, chart, catTable); else chart(M, CW);
 
       // Per rider: progress during the session, best sectors, ideal time
