@@ -146,7 +146,9 @@ The **Analysis** tab shows, from the finished runs of the session:
 
 From the day after its date, a session is **frozen**: the Timing tab shows the times but no button, no start can be given and runs cannot be deleted. This protects the results once they have been shared.
 
-An **admin** can still correct them: in the **Results** tab, tap **Edit**. In this correction mode each run has **Edit** (type the right time, e.g. `1:23.45`, or mark it as DNF) and **Delete**, and **Add a run** records a forgotten run with its time. Corrections are recorded like any tap, so they reach the other phones and can be undone. Tap **Finish corrections** when done; leaving the session also ends the mode.
+On the day of the session, any coach can correct the results in the **Results** tab: each run has **Edit** (type the right time, e.g. `1:23.45`, for a Stop tapped too early or too late), **DNF** and **Delete**, and **Add a run** records a forgotten run with its time.
+
+Afterwards, an **admin** can still correct them: in the **Results** tab, tap **Edit** to get the same buttons. Corrections are recorded like any tap, so they reach the other phones and can be undone. Tap **Finish corrections** when done; leaving the session also ends the mode.
 
 The rule is applied by the app (coaches' phones refuse), not by the database. Times tapped on the day of the session but sent later because of a weak network are still accepted. An admin can change a session's date; coaches cannot once it is frozen.
 
