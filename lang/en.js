@@ -284,5 +284,19 @@ self.CHRONO_LANGS.en = {
   'dup.help': 'The new session gets the same {riders}, without any time.',
   'dup.copyName': '{name} (copy)',
   'dup.create': 'Create the copy',
-  'dup.done': 'Session “{name}” created'
+  'dup.done': 'Session “{name}” created',
+  'place.button': 'Place start/finish on this track',
+  'place.orHand': 'If the device was carried by someone who was not timed (a coach riding the course before or after the riders), place the points by hand: “Place start/finish on this track” below.',
+  'place.start': 'Tap the track on the map where the start is.',
+  'place.finish': 'Now tap the finish (at the same spot as the start for a circuit).',
+  'place.split': 'Tap where the split is.',
+  'place.done': 'Start and finish placed. Add splits if needed, then save.',
+  'place.addSplit': 'Add a split',
+  'place.save': 'Save the points',
+  'place.tooFar': 'Tap closer to the track (within 150 m).',
+  'place.needMap': 'Placing points needs the interactive map: open this tab once with network.',
+  'place.saved': 'Course points saved: lengths, profile and speeds are updated.',
+  'place.noLap': 'Points saved, but no complete lap was found after the start: check the start and finish.',
+  'place.clear': 'Remove the points placed by hand',
+  'place.manualNote': 'Start, splits and finish placed by hand on the track “{name}”. Distances are measured along the track.'
 };

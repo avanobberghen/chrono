@@ -278,5 +278,19 @@ self.CHRONO_LANGS.fr = {
   'dup.help': 'La nouvelle session reprend les mêmes {riders}, sans aucun temps.',
   'dup.copyName': '{name} (copie)',
   'dup.create': 'Créer la copie',
-  'dup.done': 'Session « {name} » créée'
+  'dup.done': 'Session « {name} » créée',
+  'place.button': 'Placer départ / arrivée sur ce tracé',
+  'place.orHand': 'Si l\'appareil était porté par quelqu\'un qui n\'était pas chronométré (un encadrant qui a roulé le parcours avant ou après les coureurs), placez les points à la main : « Placer départ / arrivée sur ce tracé » ci-dessous.',
+  'place.start': 'Touchez le tracé sur la carte à l\'endroit du départ.',
+  'place.finish': 'Touchez maintenant l\'arrivée (au même endroit que le départ pour un circuit).',
+  'place.split': 'Touchez l\'emplacement de l\'inter.',
+  'place.done': 'Départ et arrivée placés. Ajoutez des inters si besoin, puis enregistrez.',
+  'place.addSplit': 'Ajouter un inter',
+  'place.save': 'Enregistrer les points',
+  'place.tooFar': 'Touchez plus près du tracé (moins de 150 m).',
+  'place.needMap': 'Le placement se fait sur la carte interactive : ouvrez cet onglet une fois avec du réseau.',
+  'place.saved': 'Points du parcours enregistrés : longueurs, profil et vitesses sont mis à jour.',
+  'place.noLap': 'Points enregistrés, mais aucun tour complet trouvé après le départ : vérifiez le départ et l\'arrivée.',
+  'place.clear': 'Effacer les points placés à la main',
+  'place.manualNote': 'Départ, inters et arrivée placés à la main sur le tracé « {name} ». Les distances sont mesurées le long du tracé.'
 };

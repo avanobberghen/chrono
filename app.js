@@ -490,7 +490,7 @@ function tracksOf(sid) {
   if (!g.tracks && g.pts) { db.gpx[sid] = { tracks: [{ id: 't0', name: g.name, riderId: g.riderId || null, pts: g.pts }] }; return db.gpx[sid].tracks; }
   return g.tracks || [];
 }
-function saveTracks(sid, tracks) { db.gpx[sid] = { tracks }; save('gpx'); queue({ k: 'upd', t: 'sessions', id: sid, patch: { gpx: tracks.length ? db.gpx[sid] : null } }); }
+function saveTracks(sid, tracks) { const man = (db.gpx[sid] || {}).manual; db.gpx[sid] = { tracks }; if (man && tracks.some(tk => tk.id === man.track)) db.gpx[sid].manual = man; save('gpx'); queue({ k: 'upd', t: 'sessions', id: sid, patch: { gpx: tracks.length ? db.gpx[sid] : null } }); }
 
 const hav = (a, b) => { const x = Math.sin((b[0] - a[0]) * RAD / 2) ** 2 + Math.cos(a[0] * RAD) * Math.cos(b[0] * RAD) * Math.sin((b[1] - a[1]) * RAD / 2) ** 2; return 2 * RE * Math.asin(Math.sqrt(x)); };
 const cumCache = new WeakMap();
@@ -508,7 +508,28 @@ const med = a => { if (!a.length) return null; const s = [...a].sort((x, y) => x
 /* The course: start, split and finish points found by matching the timed runs with the position
    of the rider who carried the device. Distances are measured along the track. */
 const segKey = (a, b) => a + '>' + b;
+/* Course points placed by hand on a track (when the device was carried by someone who was not timed).
+   Stored as indexes into that track's points; distances are measured along the track. */
+function manualCourse(sid) {
+  const man = (db.gpx[sid] || {}).manual; if (!man) return null;
+  const tk = tracksOf(sid).find(x => x.id === man.track); if (!tk || man.start == null || man.finish == null) return null;
+  const P = tk.pts, c = cum(P), n = P.length, ok = i => i >= 0 && i < n, circuit = hav(P[man.start], P[man.finish]) < 30;
+  if (!ok(man.start) || !ok(man.finish)) return null;
+  let i0 = Math.min(man.start, man.finish), i1 = Math.max(man.start, man.finish), lap = null;
+  if (circuit) {   // one lap: leave the start by at least 60 m, then come back within 20 m
+    i0 = man.start; let far = false; i1 = null;
+    for (let j = i0 + 1; j < n; j++) { const dd = hav(P[i0], P[j]); if (dd > 60) far = true; else if (far && dd < 20) { i1 = j; break; } }
+    if (i1 == null) return null; lap = c[i1] - c[i0];
+  }
+  const splits = (man.splits || []).filter(i => ok(i) && i > i0 && i < i1).sort((a, b) => a - b);
+  const keys = [['start', i0], ...splits.map((i, k) => ['split' + (k + 1), i]), ['finish', circuit ? i0 : i1]];
+  const gates = keys.map(([key, i]) => ({ key, lat: P[i][0], lon: P[i][1], n: 1 }));
+  const seg = {}, idx = [i0, ...splits, i1]; keys.slice(1).forEach(([k], j) => { seg[segKey(keys[j][0], k)] = c[idx[j + 1]] - c[idx[j]]; });
+  if (!circuit) seg.total = c[i1] - c[i0];
+  return { gates, seg, total: circuit ? null : c[i1] - c[i0], lap, circuit, runs: 0, refs: [], manual: { track: tk.id, name: tk.name, i0, i1, splits } };
+}
 function course(sid) {
+  const mc = manualCourse(sid); if (mc) return mc;
   const tracks = tracksOf(sid).filter(tk => tk.riderId && timed(tk.pts));
   const G = {}, S = {}, laps = [], refs = new Set(); let n = 0;
   const add = (o, k, v) => (o[k] = o[k] || []).push(v);
@@ -532,6 +553,8 @@ function course(sid) {
    circuit) of the fastest timed run, with its length, climb, descent and elevation profile. */
 function courseSegment(sid, C) {
   if (!C) return null;
+  if (C.manual) { const tk = tracksOf(sid).find(x => x.id === C.manual.track), m = C.manual, c = cum(tk.pts);
+    return segOf(tk.pts.slice(m.i0, m.i1 + 1), [{ key: 'start', d: 0 }, ...m.splits.map((i, k) => ({ key: 'split' + (k + 1), d: c[i] - c[m.i0] }))], '__course'); }
   let pick = null;
   tracksOf(sid).filter(tk => tk.riderId && C.refs.includes(tk.riderId) && timed(tk.pts)).forEach(tk => R.filter(x => x.riderId === tk.riderId && x.end != null).forEach(x => {
     const e = x.laps.length ? x.laps[0] : x.end; if (!at(tk.pts, x.start) || !at(tk.pts, e)) return;
@@ -540,16 +563,35 @@ function courseSegment(sid, C) {
   if (!pick) return null;
   const { x, e, tk } = pick, ip = ts => { const a = at(tk.pts, ts); return [a.lat, a.lon, a.ele, ts]; };
   const pts = [ip(x.start), ...tk.pts.filter(p => p[3] > x.start && p[3] < e), ip(e)];
+  const at0 = at(tk.pts, x.start), gd = [{ key: 'start', d: 0 }];
+  if (!x.laps.length) x.splits.forEach((ts, i) => { const a = at(tk.pts, ts); if (a) gd.push({ key: 'split' + (i + 1), d: a.d - at0.d }); });
+  return segOf(pts, gd, tk.riderId);
+}
+function segOf(pts, gd, riderId) {
   const d = [0]; for (let i = 1; i < pts.length; i++) d.push(d[i - 1] + hav(pts[i - 1], pts[i]));
   const raw = pts.map(p => p[2]), hasEle = raw.filter(v => v != null).length >= pts.length / 2;
   const sm = raw.map((_, i) => { const w = raw.slice(Math.max(0, i - 2), i + 3).filter(v => v != null); return w.length ? w.reduce((a, b) => a + b, 0) / w.length : null; });   // light smoothing of GPS noise
   let up = 0, down = 0, ref = null;
   sm.forEach(v => { if (v == null) return; if (ref == null) ref = v; else if (v - ref > 1) { up += v - ref; ref = v; } else if (ref - v > 1) { down += ref - v; ref = v; } });
   const step = Math.max(1, Math.floor(pts.length / 300)), prof = sm.map((v, i) => [d[i], v]).filter((p, i) => p[1] != null && (i % step === 0 || i === pts.length - 1));
-  const at0 = at(tk.pts, x.start), gd = [{ key: 'start', d: 0 }];
-  if (!x.laps.length) x.splits.forEach((ts, i) => { const a = at(tk.pts, ts); if (a) gd.push({ key: 'split' + (i + 1), d: a.d - at0.d }); });
-  gd.push({ key: 'finish', d: d[d.length - 1] });
-  return { pts, dist: d[d.length - 1], up, down, prof, ele: hasEle && prof.length > 1, gates: gd, riderId: tk.riderId };
+  gd = gd.concat([{ key: 'finish', d: d[d.length - 1] }]);
+  return { pts, dist: d[d.length - 1], up, down, prof, ele: hasEle && prof.length > 1, gates: gd, riderId };
+}
+/* Placing the course points by hand: tap the track on the activity map (start, finish, then splits if any). */
+function placeBar() {
+  const p = ui.place; if (!p) return '';
+  const msg = p.step === 'start' ? t('place.start') : p.step === 'finish' ? t('place.finish') : p.step === 'split' ? t('place.split') : t('place.done');
+  return `<div class="hint lock on" id="placebar">${msg}${self.L && self.L.map ? '' : ' ' + t('place.needMap')}<div class="tools">${p.step === 'done' ? `<button class="ghost" data-act="placesplit">${t('place.addSplit')}</button><button class="primary" data-act="placesave">${t('place.save')}</button>` : ''}<button class="ghost" data-act="placecancel">${t('common.cancel')}</button></div></div>`;
+}
+function placeAt(ll) {
+  const p = ui.place; if (!p) return;
+  const tk = tracksOf(ui.sid).find(x => x.id === p.track); if (!tk) return;
+  let best = -1, bd = Infinity; tk.pts.forEach((q, i) => { const d = hav([ll.lat, ll.lng], q); if (d < bd) { bd = d; best = i; } });
+  if (bd > 150) { toast(t('place.tooFar')); return; }
+  if (p.step === 'start') { p.start = best; p.step = 'finish'; }
+  else if (p.step === 'finish') { p.finish = best; p.step = 'done'; }
+  else if (p.step === 'split') { p.splits.push(best); p.step = 'done'; }
+  render();
 }
 // Elevation profile (SVG) for the GPS tab: altitude against distance, with the course points
 function profileSvg(seg, total) {
@@ -651,10 +693,10 @@ function gpxView(s) {
   if (C) {
     const segs = Object.keys(C.seg).filter(x => x !== 'total').map(x => { const [a, b] = x.split('>'); return `<div><span>${esc(gateLabel(a))} → ${esc(gateLabel(b))}</span><b>${metres(C.seg[x])}</b></div>`; }).join('');
     const sg = courseSegment(s.id, C);
-    head = `<h2>${t('course.title')}</h2>${sg ? `<div id="course-slot" class="mapslot ${ui.mapBig ? 'big' : ''}">${mapSvg([{ pts: sg.pts, riderId: sg.riderId }], C, null)}</div>` : ''}<div class="kpis">${C.total ? k(t('course.length'), metres(C.total)) : ''}${C.lap ? k(t('gpx.lapLength'), metres(C.lap)) : ''}${sg && sg.ele ? k(t('gpx.climb'), Math.round(sg.up) + ' m') + k(t('gpx.descent'), Math.round(sg.down) + ' m') : k(t('gpx.gatesFound'), C.gates.length)}</div>${profileSvg(sg, C.total || C.lap)}
+    head = `<h2>${t('course.title')}</h2>${sg ? `<div id="course-slot" class="mapslot ${ui.mapBig ? 'big' : ''}">${mapSvg([{ pts: sg.pts, riderId: sg.riderId }], C, sg)}</div>` : ''}<div class="kpis">${C.total ? k(t('course.length'), metres(C.total)) : ''}${C.lap ? k(t('gpx.lapLength'), metres(C.lap)) : ''}${sg && sg.ele ? k(t('gpx.climb'), Math.round(sg.up) + ' m') + k(t('gpx.descent'), Math.round(sg.down) + ' m') : k(t('gpx.gatesFound'), C.gates.length)}</div>${profileSvg(sg, C.total || C.lap)}
       ${segs ? `<div class="res"><div class="runs segs">${segs}</div></div>` : ''}
-      <div class="note">${t('gpx.courseFrom', { runs: nRuns(C.runs), names: esc(C.refs.map(rname).join(', ')) })}</div>`;
-  } else head = `<div class="hint">${t('gpx.noCourse')}</div>`;
+      <div class="note">${C.manual ? t('place.manualNote', { name: esc(C.manual.name) }) : t('gpx.courseFrom', { runs: nRuns(C.runs), names: esc(C.refs.map(rname).join(', ')) })}</div>${C.manual ? `<div class="tools"><button class="ghost" data-act="placeclear">${t('place.clear')}</button></div>` : ''}`;
+  } else head = `<div class="hint">${t('gpx.noCourse')} ${t('place.orHand')}</div>`;
   const cards = tracks.map((tk, ti) => {
     const st = trackStats(tk.pts), mine = tk.riderId ? R.filter(x => x.riderId === tk.riderId && x.end != null) : [];
     const rows = mine.map((x, i) => { const sl = timed(tk.pts) ? tk.pts.filter(p => p[3] && p[3] >= x.start && p[3] <= x.end) : []; if (sl.length < 2) return `<div><span>${i + 1}.</span><b>${fmt(x.end - x.start)}</b><em>${t('gpx.noPoints')}</em></div>`; const ss = trackStats(sl); return `<div><span>${i + 1}.</span><b>${fmt(x.end - x.start)}</b><em>${t('gpx.runLine', { m: Math.round(ss.dist), avg: num(kmh(ss.dist, x.end - x.start), 1), max: num(ss.vmax, 1) })}</em></div>`; }).join('');
@@ -669,10 +711,10 @@ function gpxView(s) {
       ${speedSvg(st)}
       ${rows ? `<h2>${t('gpx.timedRuns')}</h2><div class="runs">${rows}</div>` : ''}
       ${detRows ? `<h2>${t('gpx.detectedRuns')}</h2><div class="note">${t(tk.riderId ? 'gpx.detectedHelp' : 'gpx.detectedNoRider')}</div><div class="runs">${detRows}</div>` : ''}
-      <div class="tools"><button class="ghost" data-act="trkdel" data-id="${esc(tk.id)}">${t('gpx.remove')}</button></div></div></details>`;
+      <div class="tools">${timed(tk.pts) || tk.pts.length > 1 ? `<button class="ghost" data-act="placestart" data-id="${esc(tk.id)}">${t('place.button')}</button>` : ''}<button class="ghost" data-act="trkdel" data-id="${esc(tk.id)}">${t('gpx.remove')}</button></div></div></details>`;
   }).join('');
   const pointsList = C ? `<h2>${t('gpx.coursePoints')}</h2><ul class="list">${C.gates.map(g => `<li class="line gate"><i class="dot ${g.key === 'start' ? 'go' : g.key === 'finish' ? 'stop' : 'split'}"></i><span class="grow">${esc(gateLabel(g.key))}<small>${g.lat.toFixed(5)}, ${g.lon.toFixed(5)}</small></span><button class="navbtn" data-act="nav" data-id="${g.key}">${t('gpx.navigate')}</button></li>`).join('')}</ul>` : '';
-  const activity = `<h2>${t('course.activity')}</h2><div id="map-slot" class="mapslot ${ui.mapBig ? 'big' : ''}">${mapSvg(tracks, C, C ? courseSegment(s.id, C) : null)}</div><div class="tools maptools"><button class="ghost" data-act="mapbig">${t(ui.mapBig ? 'gpx.mapSmall' : 'gpx.mapBig')}</button></div>`;
+  const activity = `<h2>${t('course.activity')}</h2>${placeBar()}<div id="map-slot" class="mapslot ${ui.mapBig ? 'big' : ''}">${mapSvg(tracks, C, C ? courseSegment(s.id, C) : null)}</div><div class="tools maptools"><button class="ghost" data-act="mapbig">${t(ui.mapBig ? 'gpx.mapSmall' : 'gpx.mapBig')}</button></div>`;
   return `${C ? head + pointsList + activity : activity + head}<h2>${t('gpx.tracks', { n: tracks.length })}</h2><ul class="list"><li>${cards}</li></ul><div class="tools">${importBtn('ghost')}</div>`;
 }
 
@@ -700,10 +742,11 @@ function placeMap(s) {
       m.map = LF.map(m.box, { zoomControl: true });
       LF.tileLayer(MAP.tiles, { maxZoom: MAP.maxZoom, attribution: MAP.attribution }).addTo(m.map);
       m.group = LF.layerGroup().addTo(m.map);
+      if (id === 'map-slot') m.map.on('click', e => { if (ui.place) placeAt(e.latlng); });
     }
     m.map.invalidateSize();
     const tracks = tracksOf(s.id), C = course(s.id), seg = C ? courseSegment(s.id, C) : null, only = id === 'course-slot';
-    const sig = [s.id, LANG, ui.mapBig, tracks.map(tk => tk.id + (tk.riderId || '') + tk.pts.length).join(','), C ? C.gates.map(g => g.key + g.lat.toFixed(6) + g.lon.toFixed(6)).join(',') : '', seg ? seg.pts.length : 0].join('|');
+    const sig = [JSON.stringify(ui.place || ''), s.id, LANG, ui.mapBig, tracks.map(tk => tk.id + (tk.riderId || '') + tk.pts.length).join(','), C ? C.gates.map(g => g.key + g.lat.toFixed(6) + g.lon.toFixed(6)).join(',') : '', seg ? seg.pts.length : 0].join('|');
     if (sig !== m.sig) { m.sig = sig; drawMap(m, only ? [] : tracks, C, seg, only); }
   });
   if (self.L && self.L.map) attach(); else loadLeaflet().then(ok => { if (ok && ui.view === 'session' && ui.tab === 'gpx') attach(); });
@@ -718,7 +761,11 @@ function drawMap(m, tracks, C, seg, only) {
   if (C) C.gates.forEach(g => { all.push([g.lat, g.lon]);
     LF.circleMarker([g.lat, g.lon], { radius: 11, color: '#fff', weight: 3, fillColor: col(g.key === 'start' ? 'go' : g.key === 'finish' ? 'stop' : 'split'), fillOpacity: 1 })
       .bindTooltip(esc(gateShort(g.key)), { permanent: true, direction: 'top', offset: [0, -12], className: 'gtip' })
-      .on('click', () => { ui.nav = g.key; ui.sheet = 'nav'; render(); }).addTo(m.group); });
+      .on('click', () => { if (ui.place) return; ui.nav = g.key; ui.sheet = 'nav'; render(); }).addTo(m.group); });
+  const p = ui.place, ptk = p && !only && tracksOf(ui.sid).find(x => x.id === p.track);
+  if (ptk) [['start', p.start], ['finish', p.finish], ...p.splits.map((i, k) => ['split' + (k + 1), i])].forEach(([key, i]) => { if (i == null) return;
+    LF.circleMarker([ptk.pts[i][0], ptk.pts[i][1]], { radius: 12, color: '#fff', weight: 3, fillColor: col(key === 'start' ? 'go' : key === 'finish' ? 'stop' : 'split'), fillOpacity: 1, bubblingMouseEvents: false })
+      .bindTooltip(esc(gateShort(key)), { permanent: true, direction: 'top', offset: [0, -12], className: 'gtip' }).addTo(m.group); });
   if (all.length) m.map.fitBounds(LF.latLngBounds(all), { padding: only ? [22, 22] : [28, 28], maxZoom: 18 });
 }
 const isIOS = () => /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
@@ -826,7 +873,7 @@ function mapImage(tracks, C, W, H, fill) {
     cx.fillStyle = '#EEF2F6'; cx.fillRect(0, 0, W, H);
     const css = getComputedStyle(document.documentElement), pal = Object.assign({ accent: '#2A5684', muted: '#55687F', go: '#16794A', stop: '#C33A2F', split: '#8A6A00' }, SET.light || {});
     const overlay = () => {
-      tracks.forEach(tk => { const ref = C && C.refs.includes(tk.riderId); cx.beginPath(); trackStats(tk.pts).xy.forEach((p, i) => { const px = PX(p[1]) - ox, py = PY(p[0]) - oy; i ? cx.lineTo(px, py) : cx.moveTo(px, py); });
+      tracks.forEach(tk => { const ref = tk.ref || (C && C.refs.includes(tk.riderId)); cx.beginPath(); trackStats(tk.pts).xy.forEach((p, i) => { const px = PX(p[1]) - ox, py = PY(p[0]) - oy; i ? cx.lineTo(px, py) : cx.moveTo(px, py); });
         cx.lineJoin = 'round'; cx.lineCap = 'round'; cx.strokeStyle = '#FFFFFF'; cx.lineWidth = ref ? 9 : 7; cx.globalAlpha = .85; cx.stroke(); cx.globalAlpha = 1; cx.strokeStyle = ref ? pal.accent : pal.muted; cx.lineWidth = ref ? 5 : 3.5; cx.stroke(); });
       if (C) C.gates.forEach(g => { const px = PX(g.lon) - ox, py = PY(g.lat) - oy, lab = gateShort(g.key);
         cx.beginPath(); cx.arc(px, py, 13, 0, 7); cx.fillStyle = g.key === 'start' ? pal.go : g.key === 'finish' ? pal.stop : pal.split; cx.fill(); cx.lineWidth = 4; cx.strokeStyle = '#FFFFFF'; cx.stroke();
@@ -864,7 +911,7 @@ async function buildReport(s, opt) {
   // Visual block of the two map columns: on the left the course map (3/4) above its elevation profile (1/4),
   // on the right the whole activity over the same height.
   const seg = C ? courseSegment(s.id, C) : null, COLW = (595.28 - 2 * 36 - 14) / 2, VIS = 190, CMH = Math.round(VIS * .75), PRH = VIS - CMH - 4;
-  const courseImg = opt.map && seg ? await mapImage([{ pts: seg.pts, riderId: seg.riderId }], C, 1000, Math.round(1000 * CMH / COLW), .95) : null;
+  const courseImg = opt.map && seg ? await mapImage([{ pts: seg.pts, riderId: seg.riderId, ref: true }], C, 1000, Math.round(1000 * CMH / COLW), .95) : null;
   const allImg = opt.map && tracks.length ? await mapImage(tracks, C, 1000, Math.round(1000 * (seg ? VIS : CMH) / COLW)) : null;
   const title = s.name + ' · ' + fDate(s.date) + (ui.cat ? ' · ' + ui.cat : '');
   const sec = v => num(v / 1000, 2) + ' s', M = 36, FOOT = 40;
@@ -1279,7 +1326,7 @@ function initUpdates() {
 
 /* ---------- actions ---------- */
 const A = {
-  home() { ui.view = 'home'; ui.editSid = null; ui.sheet = null; ui.multi = false; ui.sel = []; ui.sid = null; subscribeSession(null); if (wake) { try { wake.release(); } catch (e) {} wake = null; } },
+  home() { ui.view = 'home'; ui.editSid = null; ui.place = null; ui.sheet = null; ui.multi = false; ui.sel = []; ui.sid = null; subscribeSession(null); if (wake) { try { wake.release(); } catch (e) {} wake = null; } },
   open(d) { ui.view = 'session'; ui.sid = d.id; ui.tab = 'chrono'; ui.multi = false; ui.sel = []; subscribeSession(d.id); pullEvents(d.id); keepAwake(); },
   admin() { ui.view = 'admin'; pullCoaches().then(() => render(true)); }, atab(d) { ui.adminTab = d.id; },
   lmode(d) { ui.loginMode = d.id; },
@@ -1357,6 +1404,12 @@ const A = {
   mapbig() { ui.mapBig = !ui.mapBig; },
   copycoords() { const C = course(ui.sid), g = C && C.gates.find(x => x.key === ui.nav); if (!g) return; const v = g.lat.toFixed(6) + ', ' + g.lon.toFixed(6);
     try { navigator.clipboard.writeText(v).then(() => toast(t('nav.copied')), () => toast(v, null, 10000)); } catch (e) { toast(v, null, 10000); } },
+  placestart(d) { ui.place = { track: d.id, step: 'start', start: null, finish: null, splits: [] }; ui.mapBig = true; loadLeaflet(); setTimeout(() => { const el = $('placebar'); if (el && el.scrollIntoView) el.scrollIntoView({ block: 'start', behavior: 'smooth' }); }, 60); },
+  placesplit() { if (ui.place) ui.place.step = 'split'; },
+  placecancel() { ui.place = null; },
+  placesave() { const p = ui.place; if (!p || p.start == null || p.finish == null) return; const g = db.gpx[ui.sid]; g.manual = { track: p.track, start: p.start, finish: p.finish, splits: p.splits };
+    ui.place = null; saveTracks(ui.sid, tracksOf(ui.sid)); toast(manualCourse(ui.sid) ? t('place.saved') : t('place.noLap')); },
+  placeclear() { const g = db.gpx[ui.sid]; if (!g) return; delete g.manual; saveTracks(ui.sid, tracksOf(ui.sid)); },
   trkdel(d) { saveTracks(ui.sid, tracksOf(ui.sid).filter(tk => tk.id !== d.id)); },
   // Add a run found on a GPS track to the results, as if it had been timed by the coaches.
   gpsadd(d) { if (!guard()) return; const x = (ui.det || {})[d.id]; if (!x || !x.rider) return; const r = x.r, ev = [emit('start', x.rider, r.start)]; r.splits.forEach(v => ev.push(emit('split', x.rider, v))); r.laps.forEach(v => ev.push(emit('lap', x.rider, v))); ev.push(emit('finish', x.rider, r.end)); ui.undo = ev; toast(t('toast.gpsAdded', { name: rname(x.rider), time: fmt(r.end - r.start) }), undoBtn()); }
