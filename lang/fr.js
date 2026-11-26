@@ -344,5 +344,6 @@ self.CHRONO_LANGS.fr = {
   'kind.course': 'Parcours',
   'kind.circuit': 'Circuit',
   'kind.trial': 'Trial',
-  'kind.needDb': 'La base de données n\'est pas encore à jour pour le type de session : exécutez supabase/update-1.10.sql dans Supabase (voir le README).'
+  'kind.needDb': 'La base de données n\'est pas encore à jour pour le type de session : exécutez supabase/update-1.10.sql dans Supabase (voir le README).',
+  'laps.count': { one: '{n} tour', other: '{n} tours' }
 };

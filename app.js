@@ -130,6 +130,9 @@ const editing = s => locked(s) && isAdmin() && ui.editSid === s.id;
 const canChange = s => !locked(s) || editing(s);
 function guard() { const s = cur(); if (canChange(s)) return true; toast(t('lock.blocked')); return false; }
 const times = r => R.filter(x => x.riderId === r && x.end != null).map(x => x.end - x.start);
+// Laps done by a rider: a finished run on a circuit is its laps (each "Lap" tap) plus the last one ended by "Finish"
+const lapsOf = r => R.filter(x => x.riderId === r && x.end != null && x.laps.length).reduce((a, x) => a + x.laps.length + 1, 0);
+const runsLabel = (r, n) => { const l = lapsOf(r); return nRuns(n) + (l ? ' · ' + t('laps.count', { n: l }) : ''); };
 const best = r => { const ts = times(r); return ts.length ? Math.min(...ts) : null; };
 
 /* ---------- event log: record a tap ---------- */
@@ -408,7 +411,7 @@ function chrono(s) {
       else if (p === 'finish' || p === 'both') btn = `<span class="duo">${dnfBtn}<button class="act stop" data-act="stop" data-id="${r}">${t('btn.stop')}</button></span>`;
     } else {
       const nd = dnfs(r);
-      sub = ORPH[r] ? t('chrono.waitingStart') : ts.length ? t('chrono.runsBest', { runs: nRuns(ts.length), time: fmt(Math.min(...ts)) }) + (nd ? ' · ' + t('chrono.dnfCount', { n: nd }) : '') : nd ? t('chrono.dnfCount', { n: nd }) : t('chrono.notStarted');
+      sub = ORPH[r] ? t('chrono.waitingStart') : ts.length ? t('chrono.runsBest', { runs: runsLabel(r, ts.length), time: fmt(Math.min(...ts)) }) + (nd ? ' · ' + t('chrono.dnfCount', { n: nd }) : '') : nd ? t('chrono.dnfCount', { n: nd }) : t('chrono.notStarted');
       if (ts.length) time = `<span class="time">${fmt(ts[ts.length - 1])}</span>`;
       if (canStart) btn = ui.multi ? `<button class="act pick" aria-pressed="${ui.sel.includes(r)}" data-act="pick" data-id="${r}" aria-label="${esc(t('chrono.select', { name: rname(r) }))}">${ui.sel.includes(r) ? '✓' : '+'}</button>` : `<button class="act go" data-act="start" data-id="${r}">${t('btn.start')}</button>`;
       else btn = `<button class="act late" data-act="${p === 'inter' ? 'split' : 'stop'}" data-id="${r}">${t(p === 'inter' ? 'btn.split' : 'btn.stop')}</button>`;
@@ -434,9 +437,9 @@ function results(s) {
   if (!ids.length) return `${chips}${lockBar}${tri || `<div class="hint">${t('results.none')}</div>`}${addBtn}`;
   return `${chips}${lockBar}${tri}${tri ? `<h2>${t('tab.chrono')}</h2>` : ''}<ul class="list">${ids.map((r, i) => {
     const ts = times(r), avg = ts.length ? ts.reduce((a, b) => a + b, 0) / ts.length : null, runs = R.filter(x => x.riderId === r && (x.end != null || x.dnf != null)), nd = dnfs(r);
-    return `<li><details class="res"><summary><span class="pos">${ts.length ? i + 1 : '–'}</span><div class="who"><b>${esc(rname(r))}</b><small>${[nRuns(ts.length), nd ? t('chrono.dnfCount', { n: nd }) : '', rcat(r) ? esc(rcat(r)) : '', t('results.details')].filter(Boolean).join(' · ')}</small></div>
+    return `<li><details class="res"><summary><span class="pos">${ts.length ? i + 1 : '–'}</span><div class="who"><b>${esc(rname(r))}</b><small>${[runsLabel(r, ts.length), nd ? t('chrono.dnfCount', { n: nd }) : '', rcat(r) ? esc(rcat(r)) : '', t('results.details')].filter(Boolean).join(' · ')}</small></div>
       ${ts.length ? `<div class="stats"><span>${t('results.best')}</span><span>${t('results.avg')}</span><span>${t('results.max')}</span><b class="best">${fmt(Math.min(...ts))}</b><b>${fmt(avg)}</b><b>${fmt(Math.max(...ts))}</b></div>` : `<b class="dnftag">${t('btn.dnf')}</b>`}</summary>
-      <div class="runs">${runs.map((x, k) => { const ex = [...x.splits.map((v, j) => t('results.splitN', { i: j + 1, time: fmt(v - x.start) })), ...x.laps.map((v, j) => t('results.lapN', { i: j + 1, time: fmt(v - (x.laps[j - 1] ?? x.start)) }))];
+      <div class="runs">${runs.map((x, k) => { const ex = [...x.splits.map((v, j) => t('results.splitN', { i: j + 1, time: fmt(v - x.start) })), ...(x.laps.length ? [...x.laps, ...(x.end != null ? [x.end] : [])] : []).map((v, j, a) => t('results.lapN', { i: j + 1, time: fmt(v - (a[j - 1] ?? x.start)) }))];
         const tools = ed ? `<button data-act="runedit" data-id="${x.id}" class="mod">${t('lock.modify')}</button>${x.dnf == null ? `<button data-act="rundnf" data-id="${x.id}" class="dnfbtn">${t('btn.dnf')}</button>` : ''}<button data-act="delrun" data-id="${x.id}">${t('results.delete')}</button>` : '';
         if (x.dnf != null) return `<div><span>${k + 1}.</span><b class="dnftag">${t('btn.dnf')}</b><em>${t('results.dnfAfter', { time: fmt(x.dnf - x.start) })}${ex.length ? ' · ' + ex.join(' · ') : ''}</em>${tools}</div>`;
         return `<div><span>${k + 1}.</span><b>${fmt(x.end - x.start)}</b><em>${ex.join(' · ')}</em>${tools}</div>`; }).join('')}</div></details></li>`; }).join('')}</ul>

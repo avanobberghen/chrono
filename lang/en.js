@@ -350,5 +350,6 @@ self.CHRONO_LANGS.en = {
   'kind.course': 'Course',
   'kind.circuit': 'Circuit',
   'kind.trial': 'Trial',
-  'kind.needDb': 'The database is not updated for session types yet: run supabase/update-1.10.sql in Supabase (see the README).'
+  'kind.needDb': 'The database is not updated for session types yet: run supabase/update-1.10.sql in Supabase (see the README).',
+  'laps.count': { one: '{n} lap', other: '{n} laps' }
 };
