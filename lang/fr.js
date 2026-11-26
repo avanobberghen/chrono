@@ -81,7 +81,7 @@ self.CHRONO_LANGS.fr = {
   'admin.title': 'Administration', 'admin.subtitle': 'Listes du club, réservées aux administrateurs',
   'admin.ridersTab': 'Coureurs ({n})', 'admin.coachesTab': 'Encadrants ({n})',
   'admin.fullName': 'Prénom et nom', 'admin.group': 'Groupe', 'admin.importCsv': 'Importer un .csv',
-  'admin.ridersCsvHelp': 'Format : une ligne par coureur, colonnes nom ; groupe ; catégorie (groupe et catégorie facultatifs). Les noms déjà présents sont ignorés. Touchez un nom pour le modifier.',
+  'admin.ridersCsvHelp': 'Format : une ligne par coureur, colonnes nom ; groupe ; catégorie. Pour modifier en masse : exportez le .csv, changez les groupes ou catégories (par ex. dans Excel), puis réimportez-le. Les nouveaux noms sont ajoutés ; pour les noms déjà présents, le groupe et la catégorie du fichier remplacent les actuels. Touchez un nom pour le modifier.',
   'admin.noRiders': "Aucun coureur pour l'instant.", 'admin.noGroup': 'Sans groupe',
   'admin.name': 'Nom', 'admin.role': 'Rôle', 'admin.addCoach': "Ajouter l'encadrant",
   'admin.coachesCsvHelp': 'Format : nom ; e-mail ; rôle (admin ou encadrant). Chaque encadrant crée ensuite son mot de passe avec « Première connexion ». Ces actions demandent du réseau.',
@@ -345,5 +345,8 @@ self.CHRONO_LANGS.fr = {
   'kind.circuit': 'Circuit',
   'kind.trial': 'Trial',
   'kind.needDb': 'La base de données n\'est pas encore à jour pour le type de session : exécutez supabase/update-1.10.sql dans Supabase (voir le README).',
-  'laps.count': { one: '{n} tour', other: '{n} tours' }
+  'laps.count': { one: '{n} tour', other: '{n} tours' },
+  'admin.exportCsv': 'Exporter un .csv',
+  'admin.ridersFile': 'coureurs',
+  'toast.ridersCsv': p => [p.added ? p.added + (p.added > 1 ? ' coureurs ajoutés' : ' coureur ajouté') : '', p.updated ? p.updated + (p.updated > 1 ? ' mis à jour' : ' mis à jour') : '', p.same ? p.same + ' inchangé' + (p.same > 1 ? 's' : '') : ''].filter(Boolean).join(' · ') || 'Aucun coureur dans le fichier'
 };

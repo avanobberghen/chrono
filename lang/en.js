@@ -87,7 +87,7 @@ self.CHRONO_LANGS.en = {
   'admin.title': 'Admin', 'admin.subtitle': 'Club lists, for admins only',
   'admin.ridersTab': 'Riders ({n})', 'admin.coachesTab': 'Coaches ({n})',
   'admin.fullName': 'First and last name', 'admin.group': 'Group', 'admin.importCsv': 'Import a .csv',
-  'admin.ridersCsvHelp': 'Format: one line per rider, columns name ; group ; category (group and category are optional). Names already in the list are skipped. Tap a name to edit it.',
+  'admin.ridersCsvHelp': 'Format: one line per rider, columns name ; group ; category. To change many riders at once: export the .csv, edit groups or categories (e.g. in Excel), then import it back. New names are added; for names already in the list, the group and category in the file replace the current ones. Tap a name to edit it.',
   'admin.noRiders': 'No riders yet.', 'admin.noGroup': 'No group',
   'admin.name': 'Name', 'admin.role': 'Role', 'admin.addCoach': 'Add coach',
   'admin.coachesCsvHelp': 'Format: name ; email ; role (admin or coach). Each coach then creates a password with “First sign-in”. These actions need a network connection.',
@@ -351,5 +351,8 @@ self.CHRONO_LANGS.en = {
   'kind.circuit': 'Circuit',
   'kind.trial': 'Trial',
   'kind.needDb': 'The database is not updated for session types yet: run supabase/update-1.10.sql in Supabase (see the README).',
-  'laps.count': { one: '{n} lap', other: '{n} laps' }
+  'laps.count': { one: '{n} lap', other: '{n} laps' },
+  'admin.exportCsv': 'Export a .csv',
+  'admin.ridersFile': 'riders',
+  'toast.ridersCsv': p => [p.added ? p.added + (p.added > 1 ? ' riders added' : ' rider added') : '', p.updated ? p.updated + ' updated' : '', p.same ? p.same + ' unchanged' : ''].filter(Boolean).join(' · ') || 'No rider in the file'
 };

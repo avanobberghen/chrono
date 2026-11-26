@@ -360,7 +360,7 @@ const V = {
     <header class="bar" style="padding-top:0"><h1>${t('admin.title')}<small>${t('admin.subtitle')}</small></h1></header>
     <div class="tabs" role="tablist"><button role="tab" aria-selected="${y}" data-act="atab" data-id="youth">${t('admin.ridersTab', { n: riders.length })}</button><button role="tab" aria-selected="${!y}" data-act="atab" data-id="coach">${t('admin.coachesTab', { n: db.coaches.length })}</button></div>
     ${y ? `<form class="inline" data-form="youth"><input id="new-youth" placeholder="${t('admin.fullName')}" autocomplete="off" required><input id="new-grp" placeholder="${t('admin.group')}" autocomplete="off" list="grp-list" style="flex:0 1 96px"><input id="new-cat" placeholder="${t('cat.label')}" autocomplete="off" list="cat-list" style="flex:0 1 84px"><button class="primary" type="submit">${t('common.add')}</button></form>
-      <div class="tools"><label class="ghost file">${t('admin.importCsv')}<input type="file" id="csv-youth" accept=".csv,text/csv,text/plain"></label></div><div class="note">${t('admin.ridersCsvHelp')}</div>
+      <div class="tools"><label class="ghost file">${t('admin.importCsv')}<input type="file" id="csv-youth" accept=".csv,text/csv,text/plain"></label><button class="ghost" data-act="ridercsv">${t('admin.exportCsv')}</button></div><div class="note">${t('admin.ridersCsvHelp')}</div>
       ${noCatCol ? `<div class="hint">${t('cat.dbMissing')}</div>` : ''}${lists()}
       <ul class="list">${riders.map(r => `<li class="line"><button class="grow linkrow" data-act="editrider" data-id="${r.id}">${esc(r.name)}<small>${esc([r.grp || t('admin.noGroup'), r.category].filter(Boolean).join(' · '))}</small></button><button data-act="delyouth" data-id="${r.id}">${t('common.remove')}</button></li>`).join('') || `<li class="hint">${t('admin.noRiders')}</li>`}</ul>`
     : `<form class="stack" data-form="coach"><div class="field">${t('admin.name')}<input id="c-name" autocomplete="off" required></div><div class="field">${t('login.email')}<input id="c-mail" type="email" autocomplete="off" required></div>
@@ -1608,6 +1608,7 @@ const A = {
     if (navigator.canShare && navigator.canShare({ files: [file] })) navigator.share({ files: [file], title: p.name }).catch(e => { if (e && e.name !== 'AbortError') saveBlob(p.name, file); });
     else saveBlob(p.name, file); },
   pdfdown() { const p = ui.pdf; if (p) saveBlob(p.name, new Blob([p.bytes], { type: 'application/pdf' })); },
+  ridercsv() { exportRiders(); },
   editrider(d) { ui.edit = d.id; ui.sheet = 'rider'; },
   addgroup(d) { const s = cur(), add = db.riders.filter(r => r.active !== false && r.grp === d.id && !s.rider_ids.includes(r.id)).sort((a, b) => a.name.localeCompare(b.name, LOC)).map(r => r.id); setRiders(s, [...s.rider_ids, ...add]); },
   addnew() { const n = $('q').value.trim(); if (!n) return; const r = addRider(n, ''), s = cur(); setRiders(s, [...s.rider_ids, r.id]); },
@@ -1688,7 +1689,28 @@ document.addEventListener('click', e => {
 document.addEventListener('submit', e => { const f = e.target.closest('[data-form]'); if (!f) return; e.preventDefault(); F[f.dataset.form](); });
 document.addEventListener('input', e => { if (e.target.id === 'q') $('sugg').innerHTML = sugg(e.target.value); });
 document.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.id === 'q') { e.preventDefault(); const b = document.querySelector('#sugg .chip'); if (b) b.click(); } });
-function readFile(input, cb) { const f = input.files && input.files[0]; if (!f) return; const r = new FileReader(); r.onload = () => cb(String(r.result), f.name); r.readAsText(f); input.value = ''; }
+// Text files: UTF-8, or Windows-1252 (what Excel often writes for "CSV"), so accented names still match
+function readFile(input, cb) { const f = input.files && input.files[0]; if (!f) return; const r = new FileReader();
+  r.onload = () => { let txt; try { txt = new TextDecoder('utf-8', { fatal: true }).decode(r.result); } catch (e) { txt = new TextDecoder('windows-1252').decode(r.result); } cb(txt, f.name); };
+  r.readAsArrayBuffer(f); input.value = ''; }
+/* Riders .csv: name ; group ; category. Exported from the Admin screen, edited (e.g. in Excel), imported back:
+   new names are added; for names already in the list, the group and category columns present in the file replace the current ones. */
+const csvCell = v => String(v || '').replace(/[;\r\n]/g, ' ').trim();
+function exportRiders() {
+  const rows = db.riders.filter(r => r.active !== false).sort((a, b) => byNat(a.name, b.name)).map(r => [r.name, r.grp, r.category].map(csvCell).join(';'));
+  download(t('admin.ridersFile') + '.csv', [[t('csv.name'), t('admin.group'), t('cat.label')].join(';'), ...rows].join('\r\n'));
+}
+function importRiders(rows) {
+  const by = new Map(db.riders.filter(r => r.active !== false).map(r => [r.name.toLowerCase(), r])); let added = 0, updated = 0, same = 0;
+  rows.forEach(c => {
+    const r = by.get(c[0].toLowerCase());
+    if (!r) { by.set(c[0].toLowerCase(), addRider(c[0], c[1] || '', c[2] || '')); added++; return; }
+    const p = {}; if (c.length > 1 && (r.grp || '') !== c[1]) p.grp = c[1]; if (c.length > 2 && (r.category || '') !== c[2]) p.category = c[2];
+    if (!Object.keys(p).length) { same++; return; }
+    Object.assign(r, p); queue({ k: 'upd', t: 'riders', id: r.id, patch: p }); updated++;
+  });
+  save('riders'); render(); toast(t('toast.ridersCsv', { added, updated, same }));
+}
 const csvRows = txt => txt.replace(/^﻿/, '').split(/\r?\n/).map(l => l.split(/[;,\t]/).map(c => c.trim().replace(/^"|"$/g, ''))).filter(r => r[0] && !/^(name|nom|prénom|prenom|vorname)$/i.test(r[0]));
 document.addEventListener('change', e => {
   const id = e.target.id, s = cur();
@@ -1701,7 +1723,7 @@ document.addEventListener('change', e => {
   if (e.target.dataset && e.target.dataset.track) { const tr = tracksOf(ui.sid), tk = tr.find(x => x.id === e.target.dataset.track); if (tk) { tk.riderId = e.target.value || null; saveTracks(ui.sid, tr); } e.target.blur(); render(); return; }
   if (id === 'gpx-file') { const f = e.target.files && e.target.files[0], sid = ui.sid; e.target.value = ''; if (!f) return;
     readTrackFile(f).then(pts => { if (pts.length < 2) throw new Error('empty'); const tr = tracksOf(sid); tr.push({ id: uuid().slice(0, 8), name: f.name, riderId: null, pts }); saveTracks(sid, tr); render(); toast(t('gpx.imported', { n: pts.length })); }).catch(() => toast(t('gpx.unreadable'))); }
-  if (id === 'csv-youth') readFile(e.target, txt => { const rows = csvRows(txt), have = new Set(db.riders.filter(r => r.active !== false).map(r => r.name.toLowerCase())); let n = 0; rows.forEach(r => { if (!have.has(r[0].toLowerCase())) { have.add(r[0].toLowerCase()); addRider(r[0], r[1] || '', r[2] || ''); n++; } }); render(); toast(t('toast.ridersImported', { n, skipped: rows.length - n })); });
+  if (id === 'csv-youth') readFile(e.target, txt => importRiders(csvRows(txt)));
   if (id === 'csv-coach') readFile(e.target, async txt => { const rows = csvRows(txt).filter(r => /@/.test(r[1] || '')).map(r => ({ name: r[0], email: r[1].toLowerCase(), role: /admin/i.test(r[2] || '') ? 'admin' : 'coach' })); if (!rows.length) { toast(t('toast.coachCsvEmpty')); return; } const { error } = await sb.from('allowed_users').upsert(rows, { onConflict: 'email', ignoreDuplicates: true }); await pullCoaches(); render(); toast(error ? (isNetErr(error) ? t('toast.retryLater') : t('toast.refused', { msg: error.message })) : t('toast.coachesImported', { n: rows.length })); });
 });
 self.addEventListener('online', () => { setNet(true); syncClock(); push().then(pull); });

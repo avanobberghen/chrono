@@ -9,7 +9,7 @@ One coach stands at the start, others at split points or at the finish. A start 
 ## Features
 
 - Sessions with a name and a date, a list of riders per session, duplication and archiving (in the session's **Setup** tab, with the list of riders).
-- A club list of riders (with groups and categories, e.g. age classes) and a list of allowed coaches, managed by admins, with `.csv` import.
+- A club list of riders (with groups and categories, e.g. age classes) and a list of allowed coaches, managed by admins, with `.csv` import and export.
 - Session types, chosen when the session is created and shown next to its name: **Course** offers the **Start**, **Split** and **Finish** posts; **Circuit** offers **Start/Finish** (laps) and **Split**; **Trial** goes straight to trial judging, without posts. Sessions created before version 1.10 have no type and offer every post; the type can be changed in **Setup > Riders, name and date**.
 - Staggered and group starts, several riders on course at once, lap or finish chosen after the stop, DNF (did not finish).
 - Results per rider: every run, best, average and slowest time, split and lap details, `.csv` export.
@@ -94,7 +94,7 @@ The publishable key is designed to be visible in a web page. Never put the **sec
 ### Step 5: first sign-in and lists
 
 1. Open the app, tap **First sign-in**, enter the email you used in step 1 and choose a password.
-2. **Admin > Riders**: add riders one by one, or import a `.csv` with columns `name ; group ; category` (group and category optional). Tap a rider's name to change it later.
+2. **Admin > Riders**: add riders one by one, or import a `.csv` with columns `name ; group ; category` (group and category optional). Tap a rider's name to change it later. To change many riders at once (for example the categories at the start of a season), tap **Export a .csv**, edit the file in a spreadsheet such as Excel, and import it back: new names are added, and for names already in the list the group and category in the file replace the current ones. The file can be saved as UTF-8 or as Excel's default CSV encoding.
    ```
    name;group;category
    First Last;Group 1;U13
