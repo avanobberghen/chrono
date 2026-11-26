@@ -103,8 +103,11 @@ const rname = id => { const r = db.riders.find(r => r.id === id); return r ? r.n
 const isAdmin = () => db.me && db.me.role === 'admin';
 
 /* ---------- runs, computed from the event log ---------- */
+// Taps cancelled by a 'void'. Undoing a correction voids its 'void' rows, which brings the original taps back.
+function voidedOf(evs) { const vs = evs.filter(e => e.type === 'void'), ids = new Set(vs.map(e => e.id)), undone = new Set(vs.filter(e => ids.has(e.target)).map(e => e.target));
+  return new Set(vs.filter(e => !undone.has(e.id) && !ids.has(e.target)).map(e => e.target)); }
 function runsOf(sid) {
-  const evs = db.events[sid] || [], voided = new Set(evs.filter(e => e.type === 'void').map(e => e.target));
+  const evs = db.events[sid] || [], voided = voidedOf(evs);
   const list = evs.filter(e => e.type !== 'void' && e.type !== 'trial' && !voided.has(e.id)).sort((a, b) => a.ts - b.ts);
   const open = {}, runs = [], orph = {};
   for (const e of list) {
@@ -131,6 +134,8 @@ const canChange = s => !locked(s) || editing(s);
 function guard() { const s = cur(); if (canChange(s)) return true; toast(t('lock.blocked')); return false; }
 const times = r => R.filter(x => x.riderId === r && x.end != null).map(x => x.end - x.start);
 // Laps done by a rider: a finished run on a circuit is its laps (each "Lap" tap) plus the last one ended by "Finish"
+// Lap times of a run: each "Lap" tap ends a lap; "Finish" ends the last one (an abandon has no last lap)
+const lapTimes = x => { if (!x.laps.length) return []; const b = [x.start, ...x.laps, ...(x.end != null ? [x.end] : [])]; return b.slice(1).map((v, j) => v - b[j]); };
 const lapsOf = r => R.filter(x => x.riderId === r && x.end != null && x.laps.length).reduce((a, x) => a + x.laps.length + 1, 0);
 const runsLabel = (r, n) => { const l = lapsOf(r); return nRuns(n) + (l ? ' · ' + t('laps.count', { n: l }) : ''); };
 const best = r => { const ts = times(r); return ts.length ? Math.min(...ts) : null; };
@@ -436,13 +441,14 @@ function results(s) {
   const tri = trialResults(s);
   if (!ids.length) return `${chips}${lockBar}${tri || `<div class="hint">${t('results.none')}</div>`}${addBtn}`;
   return `${chips}${lockBar}${tri}${tri ? `<h2>${t('tab.chrono')}</h2>` : ''}<ul class="list">${ids.map((r, i) => {
-    const ts = times(r), avg = ts.length ? ts.reduce((a, b) => a + b, 0) / ts.length : null, runs = R.filter(x => x.riderId === r && (x.end != null || x.dnf != null)), nd = dnfs(r);
-    return `<li><details class="res"><summary><span class="pos">${ts.length ? i + 1 : '–'}</span><div class="who"><b>${esc(rname(r))}</b><small>${[runsLabel(r, ts.length), nd ? t('chrono.dnfCount', { n: nd }) : '', rcat(r) ? esc(rcat(r)) : '', t('results.details')].filter(Boolean).join(' · ')}</small></div>
+    const ts = times(r), avg = ts.length ? ts.reduce((a, b) => a + b, 0) / ts.length : null, runs = R.filter(x => x.riderId === r && (x.end != null || x.dnf != null)), nd = dnfs(r), all = runs.flatMap(lapTimes), bl = all.length > 1 ? Math.min(...all) : null;
+    return `<li><details class="res" data-k="run-${r}"><summary><span class="pos">${ts.length ? i + 1 : '–'}</span><div class="who"><b>${esc(rname(r))}</b><small>${[runsLabel(r, ts.length), nd ? t('chrono.dnfCount', { n: nd }) : '', rcat(r) ? esc(rcat(r)) : '', t('results.details')].filter(Boolean).join(' · ')}</small></div>
       ${ts.length ? `<div class="stats"><span>${t('results.best')}</span><span>${t('results.avg')}</span><span>${t('results.max')}</span><b class="best">${fmt(Math.min(...ts))}</b><b>${fmt(avg)}</b><b>${fmt(Math.max(...ts))}</b></div>` : `<b class="dnftag">${t('btn.dnf')}</b>`}</summary>
-      <div class="runs">${runs.map((x, k) => { const ex = [...x.splits.map((v, j) => t('results.splitN', { i: j + 1, time: fmt(v - x.start) })), ...(x.laps.length ? [...x.laps, ...(x.end != null ? [x.end] : [])] : []).map((v, j, a) => t('results.lapN', { i: j + 1, time: fmt(v - (a[j - 1] ?? x.start)) }))];
+      <div class="runs">${runs.map((x, k) => { const L = lapTimes(x), ex = [...x.splits.map((v, j) => t('results.splitN', { i: j + 1, time: fmt(v - x.start) }))];
         const tools = ed ? `<button data-act="runedit" data-id="${x.id}" class="mod">${t('lock.modify')}</button>${x.dnf == null ? `<button data-act="rundnf" data-id="${x.id}" class="dnfbtn">${t('btn.dnf')}</button>` : ''}<button data-act="delrun" data-id="${x.id}">${t('results.delete')}</button>` : '';
-        if (x.dnf != null) return `<div><span>${k + 1}.</span><b class="dnftag">${t('btn.dnf')}</b><em>${t('results.dnfAfter', { time: fmt(x.dnf - x.start) })}${ex.length ? ' · ' + ex.join(' · ') : ''}</em>${tools}</div>`;
-        return `<div><span>${k + 1}.</span><b>${fmt(x.end - x.start)}</b><em>${ex.join(' · ')}</em>${tools}</div>`; }).join('')}</div></details></li>`; }).join('')}</ul>
+        const laps = L.map((d, j) => `<div class="lap"><span></span><b class="${d === bl ? 'best' : ''}">${fmt(d)}</b><em>${t('results.lapOnly', { i: j + 1 })}${d === bl ? ' · ' + t('results.bestLap') : ''}</em>${ed ? `<button data-act="lapedit" data-id="${x.id}" data-i="${j}" class="mod">${t('lock.modify')}</button>` : ''}</div>`).join('');
+        if (x.dnf != null) return `<div><span>${k + 1}.</span><b class="dnftag">${t('btn.dnf')}</b><em>${t('results.dnfAfter', { time: fmt(x.dnf - x.start) })}${ex.length ? ' · ' + ex.join(' · ') : ''}</em>${tools}</div>${laps}`;
+        return `<div><span>${k + 1}.</span><b>${fmt(x.end - x.start)}</b><em>${[L.length ? t('laps.count', { n: L.length }) : '', ...ex].filter(Boolean).join(' · ')}</em>${tools}</div>${laps}`; }).join('')}</div></details></li>`; }).join('')}</ul>
   ${addBtn}<div class="tools"><button class="ghost" data-act="csv">${t('results.exportCsv')}</button><button class="ghost" data-act="copy">${t('results.copy')}</button></div>`;
 }
 
@@ -463,7 +469,7 @@ function saveTrial(s) {
 }
 // Finished passages of a session, corrections applied
 function trialsOf(sid) {
-  const evs = (db.events[sid] || []), voided = new Set(evs.filter(e => e.type === 'void').map(e => e.target));
+  const evs = (db.events[sid] || []), voided = voidedOf(evs);
   const tr = evs.filter(e => e.type === 'trial' && e.data && !voided.has(e.id)), replaced = new Set(tr.map(e => e.target).filter(Boolean));
   const first = new Map(tr.map(e => [e.id, e.ts]));   // a corrected passage keeps its place: the time of the original
   return tr.filter(e => !replaced.has(e.id)).map(e => ({ id: e.id, orig: e.data.o || e.id, riderId: e.rider_id, ts: first.get(e.data.o) || e.ts, ...e.data, pts: tpts(e.data) }))
@@ -567,7 +573,7 @@ function trialResults(s) {
   return `<h2>${t('trial.title')}</h2><ul class="list">${rows.map((x, i) => {
     const zs = [...new Set(x.ps.map(p => p.z))], byZone = zs.length > 1 ? zs.map(z => { const q = x.ps.filter(p => p.z === z);
       return `<div class="zsum"><span>${esc(q[q.length - 1].zn)}</span><em>${t('trial.line', { pts: q.reduce((a, p) => a + p.pts, 0), pen: q.reduce((a, p) => a + p.pen, 0), time: mmss(q.reduce((a, p) => a + p.ms, 0)) })}</em></div>`; }).join('') : '';
-    return `<li><details class="res"><summary><span class="pos">${i + 1}</span><div class="who"><b>${esc(rname(x.r))}</b><small>${[nRuns(x.n), rcat(x.r) ? esc(rcat(x.r)) : '', t('results.details')].filter(Boolean).join(' · ')}</small></div>
+    return `<li><details class="res" data-k="trial-${x.r}"><summary><span class="pos">${i + 1}</span><div class="who"><b>${esc(rname(x.r))}</b><small>${[nRuns(x.n), rcat(x.r) ? esc(rcat(x.r)) : '', t('results.details')].filter(Boolean).join(' · ')}</small></div>
       <div class="stats"><span>${t('trial.pts')}</span><span>${t('trial.penShort')}</span><span>${t('trial.timeShort')}</span><b class="best">${x.pts}</b><b>${x.pen}</b><b>${mmss(x.ms)}</b></div></summary>
       <div class="runs">${byZone}${x.ps.map((p, k) => `<div><span>${k + 1}.</span><b>${t('trial.ptsTotal', { pts: p.pts })}</b><em>${esc(p.zn)} · ${t('trial.gatesDone', { n: p.g.filter(g => g[1]).length, of: p.g.length })} · ${t('trial.penN', { n: p.pen })} · ${mmss(p.ms)}${p.over ? ' · ' + t(p.over === 'pen' ? 'trial.overPen' : 'trial.overTime') : ''}</em>${ed ? `<button class="mod" data-act="tedit" data-id="${p.id}">${t('lock.modify')}</button><button data-act="tdel" data-id="${p.id}">${t('results.delete')}</button>` : ''}</div>`).join('')}</div></details></li>`; }).join('')}</ul>
     <div class="note">${t('trial.rankNote')}</div>`;
@@ -1441,6 +1447,10 @@ function sheet() {
     <div class="field">${t('sheet.name')}<input id="n-name" placeholder="${t('sheet.namePlaceholder')}" autocomplete="off"></div>
     <div class="field">${t('sheet.date')}<input id="n-date" type="date" value="${today()}"></div>${kindSelect('n-kind', L.get('kind', 'course'))}${noKindCol ? `<div class="note">${t('kind.needDb')}</div>` : ''}
     <button class="primary" type="submit">${t('sheet.createAndPick')}</button><button type="button" class="ghost" data-act="close">${t('common.cancel')}</button></form></div>`;
+  if (ui.sheet === 'lapedit') { const x = R.find(q => q.id === ui.runId), L = x ? lapTimes(x) : []; if (L[ui.lapI] == null) return '';
+    return `<div class="veil"><form class="sheet" data-form="lapedit"><h3>${t('results.lapTitle', { i: ui.lapI + 1, name: esc(rname(x.riderId)) })}</h3><div class="note">${t('results.lapHelp')}</div>
+    <div class="field">${t('lock.time')}<input id="le-time" inputmode="decimal" autocomplete="off" value="${fmt(L[ui.lapI])}" placeholder="0:45.20"></div>
+    <button class="primary" type="submit">${t('common.save')}</button><button type="button" class="ghost" data-act="close">${t('common.cancel')}</button></form></div>`; }
   if (ui.sheet === 'runedit') { const x = R.find(q => q.id === ui.runId); if (!x) return ''; const k = R.filter(q => q.riderId === x.riderId && q.start <= x.start).length;
     return `<div class="veil"><form class="sheet" data-form="runedit"><h3>${t('lock.editTitle', { i: k, name: esc(rname(x.riderId)) })}</h3>
     <div class="field">${t('lock.time')}<input id="re-time" inputmode="decimal" autocomplete="off" value="${x.end != null ? fmt(x.end - x.start) : ''}" placeholder="1:23.45"></div>
@@ -1496,7 +1506,9 @@ function render(bg) {
   if (ui.view !== 'login' && ui.view !== 'newpass' && !db.me) ui.view = 'login';
   if (ui.view === 'admin' && !isAdmin()) ui.view = 'home';
   R = ui.view === 'session' ? runsOf(ui.sid) : [];
+  const open = new Set([...document.querySelectorAll('details[data-k][open]')].map(d => d.dataset.k));   // keep opened details open across refreshes
   app.innerHTML = V[ui.view]() + sheet();
+  open.forEach(k => { const d = document.querySelector(`details[data-k="${k}"]`); if (d) d.open = true; });
   const tb = document.querySelector('.tabs'), sel = tb && tb.querySelector('[aria-selected="true"]');   // keep the open tab visible
   if (sel) { if (sel.offsetLeft + sel.offsetWidth > tb.scrollLeft + tb.clientWidth) tb.scrollLeft = sel.offsetLeft + sel.offsetWidth - tb.clientWidth; else if (sel.offsetLeft < tb.scrollLeft) tb.scrollLeft = sel.offsetLeft; }
   if (ui.view === 'session' && ui.tab === 'gpx') placeMap(cur());
@@ -1601,6 +1613,7 @@ const A = {
   editres() { if (!isAdmin()) return; ui.editSid = ui.editSid === ui.sid ? null : ui.sid; },
   runedit(d) { if (!guard()) return; ui.runId = d.id; ui.sheet = 'runedit'; },
   runadd() { if (!guard()) return; ui.sheet = 'runadd'; },
+  lapedit(d) { if (!guard()) return; ui.runId = d.id; ui.lapI = +d.i; ui.sheet = 'lapedit'; },
   rundnf(d) { ui.runId = d.id; A.runtodnf(); },
   runtodnf() { const x = R.find(q => q.id === ui.runId); if (!x || !guard()) return; const c = closing(x), ev = []; if (c) ev.push(emit('void', x.riderId, now(), c.id)); ev.push(emit('finish', x.riderId, x.end != null ? x.end : now(), x.id)); ui.undo = ev; ui.sheet = null; toast(t('toast.dnf', { name: rname(x.riderId) }), undoBtn()); },
   // Share must be called right after the tap: the PDF is already prepared (see prepareExport).
@@ -1640,6 +1653,11 @@ const parseTime = v => { const m = String(v).trim().replace(',', '.').match(/^(?
 const closing = x => (db.events[ui.sid] || []).find(e => x.evs.includes(e.id) && e.type === 'finish');
 const F = {
   tedit() { trialEditSave(); },
+  // One lap: its end and every later tap of the run move by the difference, so the other laps keep their times
+  lapedit() { const x = R.find(q => q.id === ui.runId), ms = parseTime($('le-time').value), L = x ? lapTimes(x) : []; if (!x || !guard() || L[ui.lapI] == null) return; if (!ms) { toast(t('lock.invalid')); return; }
+    const end = [...x.laps, x.end][ui.lapI], delta = ms - L[ui.lapI], ev = [];
+    if (delta) (db.events[ui.sid] || []).filter(e => x.evs.includes(e.id) && e.type !== 'start' && e.ts >= end).forEach(e => { ev.push(emit('void', x.riderId, now(), e.id)); ev.push(emit(e.type, x.riderId, e.ts + delta, e.target)); });
+    ui.undo = ev; ui.sheet = null; render(); toast(t('results.lapFixed', { i: ui.lapI + 1, name: rname(x.riderId), time: fmt(ms) }), undoBtn()); },
   runedit() { const x = R.find(q => q.id === ui.runId), ms = parseTime($('re-time').value); if (!x || !guard()) return; if (!ms) { toast(t('lock.invalid')); return; }
     const c = closing(x), ev = []; if (c) ev.push(emit('void', x.riderId, now(), c.id)); ev.push(emit('finish', x.riderId, x.start + ms)); ui.undo = ev; ui.sheet = null; render(); toast(t('lock.fixed', { name: rname(x.riderId), time: fmt(ms) }), undoBtn()); },
   runadd() { const s = cur(), r = $('ra-rider').value, ms = parseTime($('ra-time').value); if (!s || !r || !guard()) return; if (!ms) { toast(t('lock.invalid')); return; }

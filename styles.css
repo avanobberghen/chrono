@@ -232,3 +232,4 @@ h2{font:700 12px/1 var(--display);letter-spacing:.09em;text-transform:uppercase;
 .zrow{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .runs div.zsum{color:var(--muted);font-size:13px}.runs div.zsum span{font-weight:600;color:var(--ink)}
 .tag.kind{display:inline-block;vertical-align:middle;margin-left:6px;font-size:11px;padding:4px 7px;position:relative;top:-2px;color:var(--ink)}
+.runs div.lap{padding-left:22px;font-size:14px}.runs div.lap+div.lap{border-top:1px dashed var(--line)}.runs b.best{color:var(--go)}

@@ -348,5 +348,10 @@ self.CHRONO_LANGS.fr = {
   'laps.count': { one: '{n} tour', other: '{n} tours' },
   'admin.exportCsv': 'Exporter un .csv',
   'admin.ridersFile': 'coureurs',
-  'toast.ridersCsv': p => [p.added ? p.added + (p.added > 1 ? ' coureurs ajoutés' : ' coureur ajouté') : '', p.updated ? p.updated + (p.updated > 1 ? ' mis à jour' : ' mis à jour') : '', p.same ? p.same + ' inchangé' + (p.same > 1 ? 's' : '') : ''].filter(Boolean).join(' · ') || 'Aucun coureur dans le fichier'
+  'toast.ridersCsv': p => [p.added ? p.added + (p.added > 1 ? ' coureurs ajoutés' : ' coureur ajouté') : '', p.updated ? p.updated + (p.updated > 1 ? ' mis à jour' : ' mis à jour') : '', p.same ? p.same + ' inchangé' + (p.same > 1 ? 's' : '') : ''].filter(Boolean).join(' · ') || 'Aucun coureur dans le fichier',
+  'results.lapOnly': 'tour {i}',
+  'results.bestLap': 'meilleur tour',
+  'results.lapTitle': 'Tour {i} de {name}',
+  'results.lapHelp': 'Les tours suivants gardent leur temps : le temps total du passage change d\'autant.',
+  'results.lapFixed': 'Tour {i} corrigé : {name} {time}'
 };

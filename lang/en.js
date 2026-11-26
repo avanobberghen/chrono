@@ -354,5 +354,10 @@ self.CHRONO_LANGS.en = {
   'laps.count': { one: '{n} lap', other: '{n} laps' },
   'admin.exportCsv': 'Export a .csv',
   'admin.ridersFile': 'riders',
-  'toast.ridersCsv': p => [p.added ? p.added + (p.added > 1 ? ' riders added' : ' rider added') : '', p.updated ? p.updated + ' updated' : '', p.same ? p.same + ' unchanged' : ''].filter(Boolean).join(' · ') || 'No rider in the file'
+  'toast.ridersCsv': p => [p.added ? p.added + (p.added > 1 ? ' riders added' : ' rider added') : '', p.updated ? p.updated + ' updated' : '', p.same ? p.same + ' unchanged' : ''].filter(Boolean).join(' · ') || 'No rider in the file',
+  'results.lapOnly': 'lap {i}',
+  'results.bestLap': 'best lap',
+  'results.lapTitle': 'Lap {i} of {name}',
+  'results.lapHelp': 'The following laps keep their times: the total time of the run changes by the same amount.',
+  'results.lapFixed': 'Lap {i} corrected: {name} {time}'
 };
