@@ -184,6 +184,8 @@ To judge, create a session of type **Trial** (or, in a session without a type, c
 
 A passage in progress stays on the judging phone; it is shared with the other coaches when it is finished. In **Results**, the trial ranking adds up all passages of each rider: most points first, then fewest penalties, then the shortest total time. Each passage can be corrected (gates, penalties, time) or deleted.
 
+The **Analysis** tab shows, for trial: the success rate of each gate (zone by zone, in the gate colours), a skill-and-speed chart (share of points scored against the share of the time allowed used, one dot per rider), a riders × gates grid (cleared out of attempts) and each rider's progress passage after passage. The PDF includes the trial ranking and, when **Analysis** is ticked, the same charts.
+
 Trial needs two extra columns in the database. On an existing installation, run `supabase/update-1.9.sql` once in the Supabase SQL editor (new installations get them from `schema.sql`). Until then, the app shows a warning in the Setup tab and on the Trial post.
 
 ## Sharing results as a PDF

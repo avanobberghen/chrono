@@ -249,3 +249,13 @@ h2{font:700 12px/1 var(--display);letter-spacing:.09em;text-transform:uppercase;
 .pen .act[data-d="-1"]{background:none;border:2px solid var(--ink);color:var(--ink)}
 .pen .act:disabled{opacity:.35}
 .pen{grid-template-columns:72px 1fr 72px}
+/* Trial analysis */
+.plot+.plot{margin-top:10px}.ptitle{font-weight:600;font-size:14px;margin:0 0 4px 2px}
+.plot text.q{font:600 9px var(--body);fill:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.plot text.rl.sm{font-size:9.5px}
+.atable.hm th.gh,.atable.hm th.zh{text-align:center;padding:6px 2px}.atable.hm th.zh{border-left:1px solid var(--line)}
+.atable.hm td.hc,.atable.hm td.na{text-align:center;padding:0;font-size:12px;font-weight:700;min-width:40px;height:34px}
+.atable.hm td.hc{background:color-mix(in srgb,var(--c) calc(var(--a)*100%),transparent)}
+.atable.hm td.hc span.lt{color:#fff}.atable.hm td.na{color:var(--muted)}
+.dot{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:3px;vertical-align:middle}.dot.g3{background:#2E9B4F}.dot.g5{background:#2F74D0}.dot.g10{background:#D43A2F}
+.atable.hm td:first-child{position:sticky;left:0;background:var(--surface);z-index:1}

@@ -627,6 +627,156 @@ function trialEditSave() {
   emit('trial', x.riderId, now(), x.id, data); ui.tedit = null; ui.sheet = null; render(); toast(t('trial.corrected'));
 }
 
+/* ---------- Trial analysis: what the gates, penalties and times tell (Analysis tab and PDF) ---------- */
+const GATE_HEX = { g3: '#2E9B4F', g5: '#2F74D0', g10: '#D43A2F' };
+function trialStats(s) {
+  const P = trialsOf(s.id).filter(p => inCat(p.riderId));
+  if (!P.length) return null;
+  // Zones in the order of their first passage; gates from the passages themselves (the setup may have changed since)
+  const zones = [];
+  P.forEach(p => { let z = zones.find(x => x.id === p.z); if (!z) zones.push(z = { id: p.z, name: p.zn, gates: [] }); z.name = p.zn;
+    p.g.forEach(([pts, ok], i) => { const g = z.gates[i] = z.gates[i] || { pts, n: 0, ok: 0 }; g.pts = pts; g.n++; g.ok += ok ? 1 : 0; }); });
+  const riders = [...new Set(P.map(p => p.riderId))];
+  const per = riders.map(r => {
+    const ps = P.filter(p => p.riderId === r), poss = ps.reduce((a, p) => a + p.g.reduce((b, g) => b + g[0], 0), 0), pts = ps.reduce((a, p) => a + p.pts, 0);
+    const tl = ps.filter(p => p.lim), tPct = tl.length ? tl.reduce((a, p) => a + p.ms / p.lim, 0) / tl.length : null;
+    const cells = {}; ps.forEach(p => p.g.forEach(([, ok], i) => { const c = cells[p.z + ':' + i] = cells[p.z + ':' + i] || { n: 0, ok: 0 }; c.n++; c.ok += ok ? 1 : 0; }));
+    return { r, ps, n: ps.length, pts, poss, pPct: poss ? pts / poss : 0, tPct, pen: ps.reduce((a, p) => a + p.pen, 0), prog: ps.map(p => { const m = p.g.reduce((b, g) => b + g[0], 0); return m ? p.pts / m : 0; }), cells };
+  }).sort((a, b) => b.pPct - a.pPct || (a.tPct ?? 9) - (b.tPct ?? 9));
+  return { P, zones, per };
+}
+const pct = v => Math.round(v * 100) + ' %';
+const shortName = n => { const w = String(n).split(' '); return w.length > 1 ? w[0] + ' ' + w[1][0] : n; };
+
+function trialAnalysis(s) {
+  const T = trialStats(s); if (!T) return '';
+  const { P, zones, per } = T, tile = (l, v, sub) => `<div class="kpi"><span>${l}</span><b>${v}</b>${sub ? `<small>${sub}</small>` : ''}</div>`;
+  const allPoss = per.reduce((a, x) => a + x.poss, 0), allPts = per.reduce((a, x) => a + x.pts, 0);
+  let h = `<h2>${t('trial.title')}</h2><div class="kpis k4">${tile(t('analysis.runs'), P.length, nRiders(per.length))}${tile(t('tan.pointsPct'), pct(allPts / (allPoss || 1)), t('tan.pointsPctSub'))}
+    ${tile(t('tan.penAvg'), num(P.reduce((a, p) => a + p.pen, 0) / P.length, 1), t('tan.perPassage'))}${tile(t('tan.stopped'), P.filter(p => p.over).length, t('tan.stoppedSub'))}</div>`;
+
+  // 1. Success rate of each gate, zone by zone
+  h += `<h2>${t('tan.gates')}</h2><div class="note">${t('tan.gatesHelp')}</div>`;
+  zones.forEach(z => {
+    const n = z.gates.length, W = 320, H = 150, L = 30, B = 34, bw = Math.min(34, (W - L - 8) / n * .62), step = (W - L - 8) / n, Y = v => 12 + (1 - v) * (H - B - 12);
+    h += `<div class="plot"><div class="ptitle">${esc(z.name)}</div><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(t('tan.gates') + ' ' + z.name)}">
+      ${[0, .5, 1].map(v => `<line x1="${L}" y1="${Y(v)}" x2="${W - 4}" y2="${Y(v)}" stroke="var(--line)"/><text x="${L - 4}" y="${Y(v) + 3}" text-anchor="end">${v * 100}%</text>`).join('')}
+      ${z.gates.map((g, i) => { const r = g.ok / g.n, cx = L + step * (i + .5), c = GATE_HEX[gateCls(g.pts)];
+        return `<rect x="${(cx - bw / 2).toFixed(1)}" y="${Y(r).toFixed(1)}" width="${bw.toFixed(1)}" height="${(Y(0) - Y(r)).toFixed(1)}" rx="4" fill="${c}"><title>${esc(t('trial.gateAria', { i: i + 1, pts: g.pts }))} : ${g.ok}/${g.n}</title></rect>
+        <text x="${cx}" y="${Y(r) - 4}" text-anchor="middle" class="rl">${Math.round(r * 100)}%</text><text x="${cx}" y="${H - 20}" text-anchor="middle" class="rl">${t('trial.gateShort', { i: i + 1 })}</text><text x="${cx}" y="${H - 7}" text-anchor="middle">${g.pts} pts</text>`; }).join('')}
+    </svg></div>`;
+  });
+
+  // 4. Skill against speed: one dot per rider
+  const sc = per.filter(x => x.tPct != null);
+  if (sc.length) {
+    const W = 320, H = 240, L = 34, B = 28, R = 10, T0 = 10, xs = sc.map(x => x.tPct), x0 = Math.max(0, Math.min(...xs) - .1), x1 = Math.min(1, Math.max(...xs) + .1) || 1;
+    const X = v => L + (v - x0) / ((x1 - x0) || 1) * (W - L - R), Y = v => T0 + (1 - v) * (H - T0 - B), mx = med(xs), my = med(sc.map(x => x.pPct));
+    h += `<h2>${t('tan.scatter')}</h2><div class="note">${t('tan.scatterHelp')}</div><div class="plot"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${t('tan.scatter')}">
+      ${[0, .5, 1].map(v => `<line x1="${L}" y1="${Y(v)}" x2="${W - R}" y2="${Y(v)}" stroke="var(--line)"/><text x="${L - 4}" y="${Y(v) + 3}" text-anchor="end">${v * 100}%</text>`).join('')}
+      <line x1="${X(mx)}" y1="${T0}" x2="${X(mx)}" y2="${H - B}" stroke="var(--muted)" stroke-dasharray="3 3"/><line x1="${L}" y1="${Y(my)}" x2="${W - R}" y2="${Y(my)}" stroke="var(--muted)" stroke-dasharray="3 3"/>
+      <text x="${L + 4}" y="${T0 + 10}" class="q">${t('tan.qBest')}</text><text x="${W - R - 4}" y="${T0 + 10}" text-anchor="end" class="q">${t('tan.qSlow')}</text>
+      <text x="${L + 4}" y="${H - B - 5}" class="q">${t('tan.qRush')}</text><text x="${W - R - 4}" y="${H - B - 5}" text-anchor="end" class="q">${t('tan.qWork')}</text>
+      <text x="${(L + W - R) / 2}" y="${H - 6}" text-anchor="middle">${t('tan.xAxis')}</text>
+      ${sc.map((x, i) => `<circle cx="${X(x.tPct).toFixed(1)}" cy="${Y(x.pPct).toFixed(1)}" r="5" fill="var(--accent)" stroke="var(--surface)" stroke-width="2"><title>${esc(rname(x.r))} : ${pct(x.pPct)} ${t('tan.ofPoints')}, ${pct(x.tPct)} ${t('tan.ofTime')}</title></circle>
+        <text x="${(X(x.tPct) + 7).toFixed(1)}" y="${(Y(x.pPct) + (i % 2 ? 11 : -4)).toFixed(1)}" class="rl sm">${esc(shortName(rname(x.r)))}</text>`).join('')}
+    </svg></div>`;
+  }
+
+  // 5. Riders × gates: how often each rider cleared each gate
+  h += `<h2>${t('tan.matrix')}</h2><div class="note">${t('tan.matrixHelp')}</div><div class="scroll"><table class="atable hm"><thead>
+    ${zones.length > 1 ? `<tr><th></th>${zones.map(z => `<th colspan="${z.gates.length}" class="zh">${esc(z.name)}</th>`).join('')}</tr>` : ''}
+    <tr><th>${t('csv.name')}</th>${zones.map(z => z.gates.map((g, i) => `<th class="gh"><i class="dot ${gateCls(g.pts)}"></i>${t('trial.gateShort', { i: i + 1 })}</th>`).join('')).join('')}</tr></thead><tbody>
+    ${per.map(x => `<tr><td>${esc(rname(x.r))}</td>${zones.map(z => z.gates.map((g, i) => { const c = x.cells[z.id + ':' + i]; if (!c) return '<td class="na">–</td>';
+      const r = c.ok / c.n; return `<td class="hc" style="--a:${(0.12 + r * .88).toFixed(2)};--c:${GATE_HEX[gateCls(g.pts)]}"><span class="${r >= .5 ? 'lt' : ''}">${c.ok}/${c.n}</span></td>`; }).join('')).join('')}</tr>`).join('')}
+    </tbody></table></div>`;
+
+  // 6. Progress, passage after passage
+  const multi = per.filter(x => x.n > 1);
+  if (multi.length) h += `<h2>${t('tan.progress')}</h2><div class="note">${t('tan.progressHelp')}</div><div class="scroll"><table class="atable"><thead><tr><th>${t('csv.name')}</th><th>${t('analysis.trend')}</th><th>${t('analysis.firstToLast')}</th><th>${t('tan.penFirstLast')}</th></tr></thead><tbody>
+    ${multi.map(x => { const v = x.prog, d = v[v.length - 1] - v[0], pe = x.ps[x.ps.length - 1].pen - x.ps[0].pen;
+      return `<tr><td>${esc(rname(x.r))}</td><td>${sparkSvg(v.map(q => -q), v.indexOf(Math.max(...v)), 96, 28)}</td><td class="${d > 0 ? 'better' : d < 0 ? 'worse' : ''}">${d > 0 ? '▲ +' : d < 0 ? '▼ −' : ''}${Math.round(Math.abs(d) * 100)} pts %</td>
+        <td class="${pe < 0 ? 'better' : pe > 0 ? 'worse' : ''}">${pe > 0 ? '+' : pe < 0 ? '−' : ''}${Math.abs(pe)}</td></tr>`; }).join('')}</tbody></table></div>`;
+  return h;
+}
+
+// The same, drawn in the PDF. P: the PDF writer; ctx: { M, CW, y, room, heading, table, single, INK, MUTED, LINE, ACC }
+function trialPdf(s, opt, c) {
+  const T = trialStats(s); if (!T) return c.y;
+  const { zones, per } = T, { P, M, CW, INK, MUTED, LINE, ACC } = c; let y = c.y;
+  const rank = trialRank(s.id, per.map(x => x.r));
+  y = c.heading(t('tan.ranking'), y);
+  y = c.table([{ label: '#', w: 18, align: 'right', bold: true }, { label: t('csv.name'), bold: true }, { label: t('export.runsShort'), w: 50, align: 'right' }, { label: t('trial.pts'), w: 50, align: 'right', bold: true }, { label: t('trial.penalties'), w: 56, align: 'right' }, { label: t('tan.totalTime'), w: 56, align: 'right' }, { label: t('tan.pointsPct'), w: 64, align: 'right' }],
+    rank.map((x, i) => [String(i + 1), rname(x.r), String(x.n), String(x.pts), String(x.pen), mmss(x.ms), pct(per.find(q => q.r === x.r).pPct)]), y, { highlight: i => i === 0 });
+  if (!opt.analysis) return y;
+  const half = (CW - 14) / 2;
+  // 1. Gate success, zones two by two
+  y = c.heading(t('tan.gates'), y, t('tan.gatesShort'));
+  for (let k = 0; k < zones.length; k += 2) {
+    const H = 92; y = c.room(H + 4, y);
+    zones.slice(k, k + 2).forEach((z, j) => {
+      const x = M + j * (half + 14), w = half, L = 22, B = 20, n = z.gates.length, step = (w - L - 4) / n, bw = Math.min(22, step * .62), Y = v => y + 14 + (1 - v) * (H - B - 14);
+      P.text(x, y + 7, z.name, { size: 7.5, bold: true, color: INK, max: w });
+      [0, .5, 1].forEach(v => { P.line(x + L, Y(v), x + w, Y(v), { color: LINE, lw: .35 }); P.text(x + L - 3, Y(v) + 2, (v * 100) + '%', { size: 5.5, color: MUTED, align: 'right' }); });
+      z.gates.forEach((g, i) => { const r = g.ok / g.n, cx = x + L + step * (i + .5);
+        if (r > 0) P.rect(cx - bw / 2, Y(r), bw, Y(0) - Y(r), { fill: GATE_HEX[gateCls(g.pts)] });
+        P.text(cx, Y(r) - 2, Math.round(r * 100) + '%', { size: 6, bold: true, align: 'center' });
+        P.text(cx, y + H - 9, t('trial.gateShort', { i: i + 1 }), { size: 6, bold: true, align: 'center' }); P.text(cx, y + H - 2, g.pts + ' pts', { size: 5.5, color: MUTED, align: 'center' }); });
+    });
+    y += H + 6;
+  }
+  // 4 and 6 side by side: skill against speed, progress
+  const sc = per.filter(x => x.tPct != null), multi = per.filter(x => x.n > 1);
+  const H = 150; y = c.room(H + 30, y);
+  const y0 = y;
+  if (sc.length) {
+    const x = M, w = multi.length ? half : CW; y = c.heading(t('tan.scatter'), y, '', x, w);
+    const L = 24, B = 16, T0 = 2, xs = sc.map(q => q.tPct), x0 = Math.max(0, Math.min(...xs) - .1), x1 = Math.min(1, Math.max(...xs) + .1) || 1;
+    const X = v => x + L + (v - x0) / ((x1 - x0) || 1) * (w - L - 4), Y = v => y + T0 + (1 - v) * (H - T0 - B), mx = med(xs), my = med(sc.map(q => q.pPct));
+    [0, .5, 1].forEach(v => { P.line(x + L, Y(v), x + w, Y(v), { color: LINE, lw: .35 }); P.text(x + L - 3, Y(v) + 2, (v * 100) + '%', { size: 5.5, color: MUTED, align: 'right' }); });
+    P.line(X(mx), y + T0, X(mx), Y(0), { color: MUTED, lw: .5, dash: [2, 2] }); P.line(x + L, Y(my), x + w, Y(my), { color: MUTED, lw: .5, dash: [2, 2] });
+    P.text(x + L + 3, y + T0 + 7, t('tan.qBest'), { size: 5.8, color: MUTED }); P.text(x + w - 2, y + T0 + 7, t('tan.qSlow'), { size: 5.8, color: MUTED, align: 'right' });
+    P.text(x + L + 3, Y(0) - 3, t('tan.qRush'), { size: 5.8, color: MUTED }); P.text(x + w - 2, Y(0) - 3, t('tan.qWork'), { size: 5.8, color: MUTED, align: 'right' });
+    sc.forEach((q, i) => { P.circle(X(q.tPct), Y(q.pPct), 3, { fill: ACC }); P.text(X(q.tPct) + 5, Y(q.pPct) + (i % 2 ? 8 : -3), shortName(rname(q.r)), { size: 5.8, color: INK }); });
+    P.text(x + (L + w) / 2, y + H - 2, t('tan.xAxis'), { size: 6, color: MUTED, align: 'center' });
+    y += H + 4;
+  }
+  const yL = y; y = y0;
+  if (multi.length) {
+    const x = sc.length ? M + half + 14 : M, w = sc.length ? half : CW;
+    y = c.heading(t('tan.progress'), y, '', x, w);
+    const rowH = Math.min(18, (H - 14) / multi.length), N = Math.max(...multi.map(q => q.n));
+    P.text(x, y + 6, t('csv.name'), { size: 6, bold: true, color: MUTED }); P.text(x + w, y + 6, t('analysis.firstToLast'), { size: 6, bold: true, color: MUTED, align: 'right' }); y += 9;
+    multi.forEach(q => {
+      const v = q.prog, d = v[v.length - 1] - v[0], sx = x + w * .38, sw = w * .42, X = i => sx + (N > 1 ? i / (N - 1) : 0) * sw, Y = p => y + 2 + (1 - p) * (rowH - 5);
+      P.text(x, y + rowH / 2 + 2, rname(q.r), { size: 6.8, max: w * .36 });
+      P.poly(v.map((p, i) => [X(i), Y(p)]), { stroke: ACC, lw: 1 }); v.forEach((p, i) => P.circle(X(i), Y(p), 1.4, { fill: ACC }));
+      P.text(x + w, y + rowH / 2 + 2, (d > 0 ? '+' : d < 0 ? '−' : '') + Math.round(Math.abs(d) * 100) + ' %', { size: 6.8, bold: true, color: d > 0 ? '#16794A' : d < 0 ? '#C33A2F' : INK, align: 'right' });
+      y += rowH; P.line(x, y, x + w, y, { color: LINE, lw: .3 });
+    });
+    P.text(x, y + 7, t('tan.progressPdf'), { size: 5.8, color: MUTED, max: w }); y += 10;
+  }
+  y = Math.max(y, yL);
+  // 5. Riders × gates
+  const cols = zones.flatMap(z => z.gates.map((g, i) => ({ z, g, i }))), cw = Math.min(24, (CW - 100) / cols.length), RH = 12;
+  y = c.heading(t('tan.matrix'), y, t('tan.matrixShort')); y = c.room(RH * 3, y);
+  const head = () => { let x = M + 100; if (zones.length > 1) { zones.forEach(z => { P.text(x + z.gates.length * cw / 2, y + 6, z.name, { size: 6, bold: true, color: MUTED, align: 'center', max: z.gates.length * cw }); x += z.gates.length * cw; }); y += 8; x = M + 100; }
+    cols.forEach(cl => { P.text(x + cw / 2, y + 5, t('trial.gateShort', { i: cl.i + 1 }), { size: 5.8, bold: true, color: MUTED, align: 'center' }); P.rect(x + 2, y + 7, cw - 4, 1.8, { fill: GATE_HEX[gateCls(cl.g.pts)] }); x += cw; }); y += 11; };
+  head();
+  per.forEach(q => {
+    const ny = c.room(RH, y); if (ny !== y) { y = ny; head(); }
+    P.text(M, y + 8.5, rname(q.r), { size: 7, max: 96 });
+    let x = M + 100; cols.forEach(cl => { const cc = q.cells[cl.z.id + ':' + cl.i];
+      if (cc) { const r = cc.ok / cc.n; P.rect(x + .6, y + .6, cw - 1.2, RH - 1.2, { fill: mix(GATE_HEX[gateCls(cl.g.pts)], .12 + r * .88) }); P.text(x + cw / 2, y + 8.3, cc.ok + '/' + cc.n, { size: 5.8, bold: true, color: r >= .5 ? '#FFFFFF' : INK, align: 'center' }); }
+      else P.text(x + cw / 2, y + 8.3, '–', { size: 6, color: MUTED, align: 'center' });
+      x += cw; });
+    y += RH;
+  });
+  return y + 4;
+}
+// A colour faded towards white (PDF has no transparency here)
+function mix(hex, a) { const n = parseInt(hex.slice(1), 16), c = [n >> 16, (n >> 8) & 255, n & 255].map(v => Math.round(255 - (255 - v) * a)); return '#' + c.map(v => v.toString(16).padStart(2, '0')).join(''); }
+
 /* ---------- GPS tracks (GPX and FIT) ---------- */
 // A track is a list of points [lat, lon, elevation|null, time in ms|null], at most MAXPTS points.
 const MAXPTS = 4000, RAD = Math.PI / 180, RE = 6371000, FIT_EPOCH = 631065600; // FIT time counts from 1989-12-31 UTC
@@ -1176,6 +1326,13 @@ async function buildReport(s, opt) {
     P.text(tx, y + 28, [SET.clubName, fDate(s.date), ui.cat ? t('cat.label') + ' ' + ui.cat : ''].filter(Boolean).join(' · '), { size: 8.5, color: MUTED, max: M + CW - tx });
     if (C) P.text(tx, y + 39, [C.total ? t('gpx.courseLength') + ' ' + metres(C.total) : '', C.lap ? t('gpx.lapLength') + ' ' + metres(C.lap) : ''].filter(Boolean).join(' · '), { size: 8, color: MUTED, max: M + CW - tx });
     y += 48;
+    // Trial: ranking, and the trial analysis when the analysis is ticked
+    if (trialStats(s)) {
+      const c = { P, y, M, CW, INK, MUTED, LINE, ACC, single,
+        heading: (txt, yy, sub, x, w) => { y = yy; heading(txt, x, w, sub); return y; }, table: (cols, rows, yy, o) => { y = yy; table(cols, rows, o); return y; }, room: (h, yy) => { y = yy; room(h); return y; } };
+      y = trialPdf(s, opt, c) + 6;
+      if (!fin.length) return y;
+    }
     if (!fin.length) { P.text(M, y + 10, t('analysis.none'), { size: 9, color: MUTED, max: CW }); return y + 20; }
 
     // Summary
@@ -1371,8 +1528,8 @@ function sparkSvg(vals, bestI, w, h) {
   return `<svg class="spark" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" aria-hidden="true"><polyline points="${vals.map((v, i) => X(i).toFixed(1) + ',' + Y(v).toFixed(1)).join(' ')}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>${vals.map((v, i) => `<circle cx="${X(i).toFixed(1)}" cy="${Y(v).toFixed(1)}" r="${i === bestI ? 4 : 2.5}" fill="${i === bestI ? 'var(--accent)' : 'var(--surface)'}" stroke="var(--accent)" stroke-width="1.5"><title>${t('analysis.runN', { i: i + 1 })} : ${fmt(v)}</title></circle>`).join('')}</svg>`;
 }
 function analysis(s) {
-  const chips = catChips(s), finAll = R.filter(x => x.end != null), fin = finAll.filter(x => inCat(x.riderId));
-  if (!fin.length) return `${chips}<div class="hint">${t('analysis.none')}</div>`;
+  const chips = catChips(s), finAll = R.filter(x => x.end != null), fin = finAll.filter(x => inCat(x.riderId)), tri = trialAnalysis(s);
+  if (!fin.length) return `${chips}${tri || `<div class="hint">${t('analysis.none')}</div>`}`;
   const C = course(s.id), riders = [...new Set(fin.map(x => x.riderId))];
   const byRider = r => fin.filter(x => x.riderId === r).sort((a, b) => a.start - b.start);
   const bestOf = r => Math.min(...byRider(r).map(x => x.end - x.start));
@@ -1380,7 +1537,7 @@ function analysis(s) {
   const top = bestOf(riders[0]), allT = fin.map(x => x.end - x.start), bests = riders.map(bestOf);
   const tile = (l, v, sub) => `<div class="kpi"><span>${l}</span><b>${v}</b>${sub ? `<small>${sub}</small>` : ''}</div>`;
   const bestRun = byRider(riders[0]).find(x => x.end - x.start === top), bestSpeed = C ? kmh(runDist(bestRun, C), top) : null;
-  let h = chips + `<div class="kpis k4">${tile(t('analysis.runs'), fin.length, nRiders(riders.length))}${tile(t('analysis.sessionBest'), fmt(top), esc(rname(riders[0])))}${tile(t('analysis.medianBest'), fmt(med(bests)), t('analysis.medianBestSub'))}${bestSpeed ? tile(t('analysis.topSpeed'), num(bestSpeed, 1) + ' km/h', t('analysis.onBestRun')) : tile(t('analysis.spread'), '+' + num((Math.max(...bests) - top) / 1000, 2) + ' s', t('analysis.spreadSub'))}</div>`;
+  let h = chips + (tri ? tri + `<h2>${t('tab.chrono')}</h2>` : '') + `<div class="kpis k4">${tile(t('analysis.runs'), fin.length, nRiders(riders.length))}${tile(t('analysis.sessionBest'), fmt(top), esc(rname(riders[0])))}${tile(t('analysis.medianBest'), fmt(med(bests)), t('analysis.medianBestSub'))}${bestSpeed ? tile(t('analysis.topSpeed'), num(bestSpeed, 1) + ' km/h', t('analysis.onBestRun')) : tile(t('analysis.spread'), '+' + num((Math.max(...bests) - top) / 1000, 2) + ' s', t('analysis.spreadSub'))}</div>`;
 
   // 1. Every run on one time axis
   const lo = Math.min(...allT), hi = Math.max(...allT), pad = Math.max(500, (hi - lo) * .06), a0 = lo - pad, a1 = hi + pad, W = 320, LX = 92, RW = W - LX - 8, rowH = 24;
@@ -1401,9 +1558,9 @@ function analysis(s) {
 
   // 3. Progress during the session
   const multi = riders.filter(r => byRider(r).length > 1);
-  if (multi.length) h += `<h2>${t('analysis.progress')}</h2><div class="note">${t('analysis.progressHelp')}</div><table class="atable"><thead><tr><th>${t('csv.name')}</th><th>${t('analysis.trend')}</th><th>${t('analysis.firstToLast')}</th><th>${t('analysis.consistency')}</th></tr></thead><tbody>${multi.map(r => {
+  if (multi.length) h += `<h2>${t('analysis.progress')}</h2><div class="note">${t('analysis.progressHelp')}</div><div class="scroll"><table class="atable"><thead><tr><th>${t('csv.name')}</th><th>${t('analysis.trend')}</th><th>${t('analysis.firstToLast')}</th><th>${t('analysis.consistency')}</th></tr></thead><tbody>${multi.map(r => {
     const v = byRider(r).map(x => x.end - x.start), d = v[v.length - 1] - v[0], m = v.reduce((a, b) => a + b, 0) / v.length, sd = Math.sqrt(v.reduce((a, b) => a + (b - m) ** 2, 0) / v.length);
-    return `<tr><td>${esc(rname(r))}</td><td>${sparkSvg(v, v.indexOf(Math.min(...v)), 96, 28)}</td><td class="${d < 0 ? 'better' : d > 0 ? 'worse' : ''}">${d < 0 ? '▲ ' : d > 0 ? '▼ ' : ''}${d > 0 ? '+' : d < 0 ? '−' : ''}${num(Math.abs(d) / 1000, 2)} s</td><td>±${num(sd / 1000, 2)} s</td></tr>`; }).join('')}</tbody></table>`;
+    return `<tr><td>${esc(rname(r))}</td><td>${sparkSvg(v, v.indexOf(Math.min(...v)), 96, 28)}</td><td class="${d < 0 ? 'better' : d > 0 ? 'worse' : ''}">${d < 0 ? '▲ ' : d > 0 ? '▼ ' : ''}${d > 0 ? '+' : d < 0 ? '−' : ''}${num(Math.abs(d) / 1000, 2)} s</td><td>±${num(sd / 1000, 2)} s</td></tr>`; }).join('')}</tbody></table></div>`;
 
   // 4. Sectors (when splits were taken)
   const nS = Math.max(0, ...fin.filter(x => !x.laps.length).map(x => x.splits.length));
