@@ -525,7 +525,7 @@ function setupView(s) {
     <div class="zrow"><label class="field">${t('trial.maxPen')}<input type="number" min="1" max="99" inputmode="numeric" data-z="${z.id}" data-f="pen" value="${z.pen}" ${off ? 'disabled' : ''}></label>
     <label class="field">${t('trial.time')}<input inputmode="decimal" data-z="${z.id}" data-f="time" value="${mmss(z.time)}" placeholder="2:00" ${off ? 'disabled' : ''}></label></div>
     <div class="note">${t('trial.zoneTotal', { gates: z.gates.length, pts: z.gates.reduce((a, b) => a + b, 0) })}</div></div>`;
-  return `<h2>${t('setup.session')}</h2><div class="tools"><button class="ghost" data-act="people">${t('chrono.peopleBtn')}</button><button class="ghost" data-act="dup">${t('dup.button')}</button><button class="ghost" data-act="archive">${t(s.archived ? 'chrono.unarchive' : 'chrono.archive')}</button></div>
+  return `<h2>${t('setup.session')}</h2><div class="tools"><button class="ghost" data-act="people">${t('chrono.peopleBtn')}</button><button class="ghost" data-act="dup">${t('dup.button')}</button><button class="ghost" data-act="archive">${t(s.archived ? 'chrono.unarchive' : 'chrono.archive')}</button>${isAdmin() ? `<button class="ghost danger" data-act="delsession">${t(ui.confirmDel ? 'sheet.confirmDelete' : 'sheet.deleteSession')}</button>` : ''}</div>
     <h2>${t('trial.title')}</h2><div class="note">${t('trial.setupHelp')}</div>${warn}${zones.map(zone).join('')}
     <div class="tools"><button class="ghost" data-act="zadd" ${off ? 'disabled' : ''}>${t('trial.zoneAdd')}</button></div>`;
 }
@@ -1445,7 +1445,7 @@ function sheet() {
     <div class="field">${t('sheet.name')}<input id="e-name" value="${esc(s.name)}" autocomplete="off"></div>
     <div class="field">${t('sheet.date')}<input id="e-date" type="date" value="${esc(s.date)}" ${locked(s) && !isAdmin() ? 'disabled' : ''}></div>
     <button class="primary" data-act="close">${t('common.done')}</button>
-    ${isAdmin() ? `<button class="ghost danger" data-act="delsession">${t(ui.confirmDel ? 'sheet.confirmDelete' : 'sheet.deleteSession')}</button>` : ''}</div></div>`; }
+</div></div>`; }
   return '';
 }
 // Suggestions for the group and category fields
@@ -1541,7 +1541,7 @@ const A = {
   arch() { ui.showArch = !ui.showArch; },
   archive() { const s = cur(); s.archived = !s.archived; save('sessions'); queue({ k: 'upd', t: 'sessions', id: s.id, patch: { archived: s.archived } }); if (s.archived) { A.home(); toast(t('toast.archived')); } else toast(t('toast.unarchived')); },
   delsession() { if (!ui.confirmDel) { ui.confirmDel = true; return; } const id = ui.sid; db.sessions = db.sessions.filter(s => s.id !== id); delete db.events[id]; delete db.gpx[id]; delete db.pend[id]; save('sessions', 'events', 'gpx', 'pend'); queue({ k: 'del', t: 'sessions', id }); A.home(); toast(t('toast.sessionDeleted')); },
-  tab(d) { ui.tab = d.id; if (d.id !== 'chrono' && !db.gpx[ui.sid]) pullGpx(ui.sid); },
+  tab(d) { ui.tab = d.id; ui.confirmDel = false; if (d.id !== 'chrono' && !db.gpx[ui.sid]) pullGpx(ui.sid); },
   poste(d) { ui.poste = d.id; L.set('poste', d.id); ui.multi = false; ui.sel = []; },
   multi() { ui.multi = !ui.multi; ui.sel = []; },
   pick(d) { const i = ui.sel.indexOf(d.id); if (i < 0) ui.sel.push(d.id); else ui.sel.splice(i, 1); },
