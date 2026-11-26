@@ -8,7 +8,7 @@ One coach stands at the start, others at split points or at the finish. A start 
 
 ## Features
 
-- Sessions with a name and a date, a list of riders per session, and archiving.
+- Sessions with a name and a date, a list of riders per session, duplication and archiving (in the session's **Setup** tab, with the list of riders).
 - A club list of riders (with groups and categories, e.g. age classes) and a list of allowed coaches, managed by admins, with `.csv` import.
 - Posts: **Start**, **Split**, **Finish**, and **Start/Finish** for laps on a circuit.
 - Staggered and group starts, several riders on course at once, lap or finish chosen after the stop, DNF (did not finish).

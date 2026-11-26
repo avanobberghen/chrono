@@ -56,8 +56,8 @@ self.CHRONO_LANGS.fr = {
   'chrono.waitHint': "En attente d'un départ. Dès que l'encadrant du départ lance un coureur, son chrono tourne ici aussi. Si le départ n'arrive pas (réseau faible), touchez quand même le bouton en pointillés au passage du coureur : le temps sera calculé dès que le départ sera reçu.",
   'chrono.groupStart': 'Départ groupé', 'chrono.leaveGroup': 'Quitter le départ groupé', 'chrono.selectAll': 'Tout sélectionner',
   'chrono.startN': 'Départ · {riders}', 'chrono.selectRiders': 'Sélectionnez des coureurs',
-  'chrono.noRiders': 'Aucun participant. Ajoutez des coureurs ci-dessous.',
-  'chrono.peopleBtn': 'Participants et réglages', 'chrono.archive': 'Archiver', 'chrono.unarchive': 'Désarchiver',
+  'chrono.noRiders': 'Aucun participant pour l\'instant.',
+  'chrono.peopleBtn': 'Participants, nom et date', 'chrono.archive': 'Archiver', 'chrono.unarchive': 'Désarchiver',
 
   'results.none': "Aucun passage terminé pour l'instant. Les temps, le meilleur, la moyenne et le moins bon s'affichent ici.",
   'results.details': 'détail', 'results.best': 'Meilleur', 'results.avg': 'Moy.', 'results.max': 'Max',
@@ -338,5 +338,6 @@ self.CHRONO_LANGS.fr = {
   'trial.zoneAdd': '+ Ajouter une zone',
   'trial.saved': '{name} : {pts} pts enregistrés',
   'trial.deleted': 'Passage supprimé',
-  'trial.corrected': 'Passage corrigé'
+  'trial.corrected': 'Passage corrigé',
+  'setup.session': 'Session'
 };

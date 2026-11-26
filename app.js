@@ -368,6 +368,7 @@ function footer() {
   return `<footer class="foot">${pick}<span>${VERSION ? t('footer.version', { v: esc(VERSION) }) : ''}</span><button class="linkish" data-act="checkupdate">${t('footer.checkUpdate')}</button></footer>`;
 }
 
+const noRiders = () => `<li class="hint">${t('chrono.noRiders')}<div class="tools"><button class="ghost" data-act="people">${t('chrono.peopleBtn')}</button></div></li>`;
 function chrono(s) {
   const frozen = locked(s), p = ui.poste, canStart = !frozen && (p === 'start' || p === 'both'), pend = db.pend[s.id] || {};
   const cp = r => { const a = active(r); return a.splits.length + a.laps.length; }, last = r => { const a = active(r); return Math.max(a.start, ...a.splits, ...a.laps); };
@@ -404,8 +405,8 @@ function chrono(s) {
   const wait = !frozen && !canStart && !running.length && s.rider_ids.length ? `<div class="hint">${t('chrono.waitHint')}</div>` : '';
   const n = ui.sel.length, multi = canStart && idle.length ? `<div class="tools"><button class="ghost" data-act="multi">${t(ui.multi ? 'chrono.leaveGroup' : 'chrono.groupStart')}</button>${ui.multi ? `<button class="ghost" data-act="pickall">${t('chrono.selectAll')}</button>` : ''}</div>` : '';
   const bar = ui.multi && canStart ? `<div class="gobar"><button class="act go" data-act="startsel" ${n ? '' : 'disabled'}>${n ? t('chrono.startN', { riders: nRiders(n) }) : t('chrono.selectRiders')}</button></div>` : '';
-  return `${lockMsg}${wait}${multi}<ul class="list tight">${order.map(row).join('') || `<li class="hint">${t('chrono.noRiders')}</li>`}</ul>
-  <div class="tools"><button class="ghost" data-act="people">${t('chrono.peopleBtn')}</button><button class="ghost" data-act="dup">${t('dup.button')}</button><button class="ghost" data-act="archive">${t(s.archived ? 'chrono.unarchive' : 'chrono.archive')}</button></div>${bar}`;
+  return `${lockMsg}${wait}${multi}<ul class="list tight">${order.map(row).join('') || noRiders()}</ul>
+  ${bar}`;
 }
 
 function results(s) {
@@ -508,8 +509,8 @@ function trialView(s) {
       <div class="tsum"><span>${t('trial.gatesDone', { n: done, of: l.z.gates.length })}</span><b>${t('trial.ptsTotal', { pts })}</b></div>
       ${penHtml(l.pen, l.z.pen, 'tpen', r, ready)}<div class="tbtns">${btns}</div></li>`;
   };
-  return `${warn}<ul class="list">${s.rider_ids.map(row).join('') || `<li class="hint">${t('chrono.noRiders')}</li>`}</ul>
-  <div class="tools"><button class="ghost" data-act="people">${t('chrono.peopleBtn')}</button></div>`;
+  return `${warn}<ul class="list">${s.rider_ids.map(row).join('') || noRiders()}</ul>
+`;
 }
 
 // Setup tab: the trial zones of the session
@@ -524,7 +525,8 @@ function setupView(s) {
     <div class="zrow"><label class="field">${t('trial.maxPen')}<input type="number" min="1" max="99" inputmode="numeric" data-z="${z.id}" data-f="pen" value="${z.pen}" ${off ? 'disabled' : ''}></label>
     <label class="field">${t('trial.time')}<input inputmode="decimal" data-z="${z.id}" data-f="time" value="${mmss(z.time)}" placeholder="2:00" ${off ? 'disabled' : ''}></label></div>
     <div class="note">${t('trial.zoneTotal', { gates: z.gates.length, pts: z.gates.reduce((a, b) => a + b, 0) })}</div></div>`;
-  return `<h2>${t('trial.title')}</h2><div class="note">${t('trial.setupHelp')}</div>${warn}${zones.map(zone).join('')}
+  return `<h2>${t('setup.session')}</h2><div class="tools"><button class="ghost" data-act="people">${t('chrono.peopleBtn')}</button><button class="ghost" data-act="dup">${t('dup.button')}</button><button class="ghost" data-act="archive">${t(s.archived ? 'chrono.unarchive' : 'chrono.archive')}</button></div>
+    <h2>${t('trial.title')}</h2><div class="note">${t('trial.setupHelp')}</div>${warn}${zones.map(zone).join('')}
     <div class="tools"><button class="ghost" data-act="zadd" ${off ? 'disabled' : ''}>${t('trial.zoneAdd')}</button></div>`;
 }
 function trialChange(el) {
@@ -1474,6 +1476,8 @@ function render(bg) {
   if (ui.view === 'admin' && !isAdmin()) ui.view = 'home';
   R = ui.view === 'session' ? runsOf(ui.sid) : [];
   app.innerHTML = V[ui.view]() + sheet();
+  const tb = document.querySelector('.tabs'), sel = tb && tb.querySelector('[aria-selected="true"]');   // keep the open tab visible
+  if (sel) { if (sel.offsetLeft + sel.offsetWidth > tb.scrollLeft + tb.clientWidth) tb.scrollLeft = sel.offsetLeft + sel.offsetWidth - tb.clientWidth; else if (sel.offsetLeft < tb.scrollLeft) tb.scrollLeft = sel.offsetLeft; }
   if (ui.view === 'session' && ui.tab === 'gpx') placeMap(cur());
   if (ui.view === 'session' && ui.tab === 'export') prepareExport(cur());
 }

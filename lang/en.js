@@ -62,8 +62,8 @@ self.CHRONO_LANGS.en = {
   'chrono.waitHint': 'Waiting for a start. As soon as the coach at the start sends a rider off, the stopwatch runs here too. If the start does not arrive (weak network), still tap the dashed button when the rider passes: the time is computed once the start is received.',
   'chrono.groupStart': 'Group start', 'chrono.leaveGroup': 'Leave group start', 'chrono.selectAll': 'Select all',
   'chrono.startN': 'Start · {riders}', 'chrono.selectRiders': 'Select riders',
-  'chrono.noRiders': 'No riders. Add some below.',
-  'chrono.peopleBtn': 'Riders and settings', 'chrono.archive': 'Archive', 'chrono.unarchive': 'Unarchive',
+  'chrono.noRiders': 'No riders yet.',
+  'chrono.peopleBtn': 'Riders, name and date', 'chrono.archive': 'Archive', 'chrono.unarchive': 'Unarchive',
 
   'results.none': 'No finished run yet. Times, best, average and slowest appear here.',
   'results.details': 'details', 'results.best': 'Best', 'results.avg': 'Avg.', 'results.max': 'Max',
@@ -344,5 +344,6 @@ self.CHRONO_LANGS.en = {
   'trial.zoneAdd': '+ Add a zone',
   'trial.saved': '{name}: {pts} pts saved',
   'trial.deleted': 'Passage deleted',
-  'trial.corrected': 'Passage corrected'
+  'trial.corrected': 'Passage corrected',
+  'setup.session': 'Session'
 };

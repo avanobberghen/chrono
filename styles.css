@@ -36,7 +36,7 @@ h2{font:700 12px/1 var(--display);letter-spacing:.09em;text-transform:uppercase;
 .seg{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:4px;gap:4px}
 .seg button{border:0;background:none;border-radius:9px;min-height:44px;font-weight:600;font-size:15px;padding:4px 2px;color:var(--muted)}
 .seg button[aria-pressed="true"]{background:var(--ink);color:var(--bg)}
-.tabs{display:flex;gap:18px;border-bottom:1px solid var(--line)}
+.tabs{display:flex;gap:16px;border-bottom:1px solid var(--line)}
 .tabs button{border:0;background:none;padding:10px 0;font-weight:600;color:var(--muted);border-bottom:3px solid transparent;margin-bottom:-1px}
 .tabs button[aria-selected="true"]{color:var(--ink);border-color:var(--accent)}
 .label{font-size:13px;color:var(--muted);font-weight:500;margin-bottom:-8px}
