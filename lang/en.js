@@ -345,5 +345,10 @@ self.CHRONO_LANGS.en = {
   'trial.saved': '{name}: {pts} pts saved',
   'trial.deleted': 'Passage deleted',
   'trial.corrected': 'Passage corrected',
-  'setup.session': 'Session'
+  'setup.session': 'Session',
+  'kind.label': 'Session type',
+  'kind.course': 'Course',
+  'kind.circuit': 'Circuit',
+  'kind.trial': 'Trial',
+  'kind.needDb': 'The database is not updated for session types yet: run supabase/update-1.10.sql in Supabase (see the README).'
 };

@@ -339,5 +339,10 @@ self.CHRONO_LANGS.fr = {
   'trial.saved': '{name} : {pts} pts enregistrés',
   'trial.deleted': 'Passage supprimé',
   'trial.corrected': 'Passage corrigé',
-  'setup.session': 'Session'
+  'setup.session': 'Session',
+  'kind.label': 'Type de session',
+  'kind.course': 'Parcours',
+  'kind.circuit': 'Circuit',
+  'kind.trial': 'Trial',
+  'kind.needDb': 'La base de données n\'est pas encore à jour pour le type de session : exécutez supabase/update-1.10.sql dans Supabase (voir le README).'
 };

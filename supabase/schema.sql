@@ -39,6 +39,7 @@ create table if not exists public.sessions (
   archived   boolean not null default false,
   rider_ids  uuid[] not null default '{}',
   gpx        jsonb,
+  kind       text,                      -- session type: 'course', 'circuit' or 'trial' (decides the posts offered)
   trial      jsonb,                     -- trial zones: gates and their points, penalties, time limit
   created_by uuid default auth.uid(),
   created_at timestamptz not null default now()

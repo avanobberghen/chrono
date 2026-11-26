@@ -231,3 +231,4 @@ h2{font:700 12px/1 var(--display);letter-spacing:.09em;text-transform:uppercase;
 .zname{flex:1;min-width:0;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:10px;font-weight:600;font-size:17px;color:var(--ink)}
 .zrow{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .runs div.zsum{color:var(--muted);font-size:13px}.runs div.zsum span{font-weight:600;color:var(--ink)}
+.tag.kind{display:inline-block;vertical-align:middle;margin-left:6px;font-size:11px;padding:4px 7px;position:relative;top:-2px;color:var(--ink)}

@@ -10,7 +10,7 @@ One coach stands at the start, others at split points or at the finish. A start 
 
 - Sessions with a name and a date, a list of riders per session, duplication and archiving (in the session's **Setup** tab, with the list of riders).
 - A club list of riders (with groups and categories, e.g. age classes) and a list of allowed coaches, managed by admins, with `.csv` import.
-- Posts: **Start**, **Split**, **Finish**, and **Start/Finish** for laps on a circuit.
+- Session types, chosen when the session is created and shown next to its name: **Course** offers the **Start**, **Split** and **Finish** posts; **Circuit** offers **Start/Finish** (laps) and **Split**; **Trial** goes straight to trial judging, without posts. Sessions created before version 1.10 have no type and offer every post; the type can be changed in **Setup > Riders, name and date**.
 - Staggered and group starts, several riders on course at once, lap or finish chosen after the stop, DNF (did not finish).
 - Results per rider: every run, best, average and slowest time, split and lap details, `.csv` export.
 - Rankings and analysis for everyone or per category.
@@ -174,7 +174,7 @@ When riders of a session have categories:
 
 For trial training, each session can have **trial zones**. In the session's **Setup** tab, add a zone, name it, and set its gates: tap a gate to switch between 3 (green), 5 (blue) and 10 (red) points, and use **+ Gate** / **− Gate** to change their number (6 by default). Each zone also has a maximum number of penalties (5 by default: the rider is stopped at the 5th) and a time allowed (2:00 by default).
 
-To judge, choose the **Trial** post. Riders pass one at a time: tap **Passage** on a rider's row to open it, pick the zone, then **Start**.
+To judge, create a session of type **Trial** (or, in a session without a type, choose the **Trial** post). Riders pass one at a time: tap **Passage** on a rider's row to open it, pick the zone, then **Start**.
 
 - Tap a gate when it is cleared; tap again to clear it.
 - **+** adds a penalty, **−** removes one entered by mistake.
@@ -273,8 +273,9 @@ Some versions need a change in the database. They come with a file in `supabase/
 |---|---|---|
 | 1.4 | `supabase/update-1.4.sql` | Rider categories |
 | 1.9 | `supabase/update-1.9.sql` | Trial zones and passages |
+| 1.10 | `supabase/update-1.10.sql` | Session type (course, circuit, trial) |
 
-Until it is run, the app keeps working but the new data is not saved (categories, trial), and the app shows a reminder. New installations do not need these files: `schema.sql` already includes everything.
+Until it is run, the app keeps working but the new data is not saved (categories, trial, session type), and the app shows a reminder. New installations do not need these files: `schema.sql` already includes everything.
 
 ### What to do after changing files
 

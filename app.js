@@ -192,14 +192,18 @@ async function pull() {
   try {
     const [r, s] = await Promise.all([
       sb.from('riders').select(noCatCol ? 'id,name,grp,active' : 'id,name,grp,active,category').order('name'),
-      sb.from('sessions').select(noTrialCol ? 'id,name,date,archived,rider_ids' : 'id,name,date,archived,rider_ids,trial').order('date', { ascending: false })
+      sb.from('sessions').select('id,name,date,archived,rider_ids' + (noTrialCol ? '' : ',trial') + (noKindCol ? '' : ',kind')).order('date', { ascending: false })
     ]);
     if (r.error && r.error.code === '42703' && !noCatCol) { noCatCol = true; return pull(); }
-    if (s.error && s.error.code === '42703' && !noTrialCol) { noTrialCol = true; return pull(); }   // trial column not added yet (update-1.9.sql)   // database not updated for categories yet (see README)
+    if (s.error && s.error.code === '42703') {   // columns added by update-1.9.sql (trial) and update-1.10.sql (kind) not there yet
+      if (/kind/.test(s.error.message) && !noKindCol) { noKindCol = true; return pull(); }
+      if (!noTrialCol) { noTrialCol = true; return pull(); }
+      if (!noKindCol) { noKindCol = true; return pull(); }
+    }   // database not updated for categories yet (see README)
     const err = r.error || s.error;
     if (err) { if (isNetErr(err)) setNet(false); else if (isAuthErr(r.error ? r : s)) authed = false; paintNet(); return; }
     setNet(true);
-    db.riders = mergeRows(db.riders, r.data, 'riders'); const tr = new Map(db.sessions.map(x => [x.id, x.trial])); db.sessions = mergeRows(db.sessions, s.data, 'sessions'); db.sessions.forEach(x => { if (!('trial' in x) && tr.get(x.id)) x.trial = tr.get(x.id); });
+    db.riders = mergeRows(db.riders, r.data, 'riders'); const was = new Map(db.sessions.map(x => [x.id, x])); db.sessions = mergeRows(db.sessions, s.data, 'sessions'); db.sessions.forEach(x => { const o = was.get(x.id); if (o) ['trial', 'kind'].forEach(k => { if (!(k in x) && o[k]) x[k] = o[k]; }); });
     save('riders', 'sessions');
     if (ui.view === 'session' && !cur()) { ui.view = 'home'; toast(t('toast.sessionGone')); }
     if (ui.view === 'session') await pullEvents(ui.sid);
@@ -328,7 +332,7 @@ const V = {
   home() {
     const td = today(), live = db.sessions.filter(s => !s.archived), arch = db.sessions.filter(s => s.archived).sort((a, b) => a.date < b.date ? 1 : -1);
     const up = live.filter(s => s.date >= td).sort((a, b) => a.date < b.date ? -1 : 1), past = live.filter(s => s.date < td).sort((a, b) => a.date < b.date ? 1 : -1);
-    const card = s => `<li><button class="card" data-act="open" data-id="${s.id}"><span class="grow"><b>${esc(s.name)}</b><small>${fDate(s.date)} · ${nRiders(s.rider_ids.length)}</small></span>${s.archived ? `<span class="tag">${t('home.archivedTag')}</span>` : s.date === td ? `<span class="tag today">${t('home.todayTag')}</span>` : s.date > td ? `<span class="tag">${t('home.upcomingTag')}</span>` : ''}</button></li>`;
+    const card = s => `<li><button class="card" data-act="open" data-id="${s.id}"><span class="grow"><b>${esc(s.name)}${kindTag(s)}</b><small>${fDate(s.date)} · ${nRiders(s.rider_ids.length)}</small></span>${s.archived ? `<span class="tag">${t('home.archivedTag')}</span>` : s.date === td ? `<span class="tag today">${t('home.todayTag')}</span>` : s.date > td ? `<span class="tag">${t('home.upcomingTag')}</span>` : ''}</button></li>`;
     const [c, lab] = netLabel();
     return `<header class="bar"><div class="brand">${logoImg('')}<h1>${esc(SET.appName)}<small>${esc([SET.clubName, db.me ? db.me.name : ''].filter(Boolean).join(' · '))}</small></h1></div>${isAdmin() ? `<button class="ghost" data-act="admin">${t('home.admin')}</button>` : ''}<button class="ghost" data-act="logout">${t('home.signOut')}</button></header>
     <div class="tools"><button class="net ${c}" id="net" data-act="sync"><i></i>${esc(lab)}</button></div>
@@ -338,13 +342,14 @@ const V = {
     ${footer()}<button class="fab" data-act="new" aria-label="${t('home.newSession')}">+</button>`;
   },
   session() {
-    const s = cur(), P = [['start', t('post.start')], ['inter', t('post.split')], ['finish', t('post.finish')], ['both', t('post.both')], ['trial', t('post.trial')]];
-    const T = [['chrono', t('tab.chrono')], ['results', t('tab.results')], ['analysis', t('tab.analysis')], ['gpx', t('tab.gpx')], ['export', t('tab.export')], ['setup', t('tab.setup')]], [c, lab] = netLabel();
+    const s = cur(), P = postsOf(s), isTrial = kindOf(s) === 'trial';
+    if (P.length && !P.some(([k]) => k === ui.poste)) ui.poste = P[0][0];   // the saved post is not offered for this type of session
+    const T = [['chrono', isTrial ? t('post.trial') : t('tab.chrono')], ['results', t('tab.results')], ['analysis', t('tab.analysis')], ['gpx', t('tab.gpx')], ['export', t('tab.export')], ['setup', t('tab.setup')]], [c, lab] = netLabel();
     return `<header class="bar"><button class="back" data-act="home">‹ ${t('session.back')}</button><span style="flex:1"></span>
       <button class="net ${c}" id="net" data-act="sync"><i></i>${esc(lab)}</button></header>
-    <header class="bar" style="padding-top:0"><h1>${esc(s.name)}<small>${fDate(s.date)} · ${nRiders(s.rider_ids.length)}${s.archived ? ' · ' + t('session.archived') : ''}</small></h1></header>
+    <header class="bar" style="padding-top:0"><h1>${esc(s.name)}${kindTag(s)}<small>${fDate(s.date)} · ${nRiders(s.rider_ids.length)}${s.archived ? ' · ' + t('session.archived') : ''}</small></h1></header>
     <div class="tabs" role="tablist">${T.map(([k, l]) => `<button role="tab" aria-selected="${ui.tab === k}" data-act="tab" data-id="${k}">${l}</button>`).join('')}</div>
-    ${ui.tab === 'chrono' ? `${locked(s) ? '' : `<div class="label">${t('session.myPost')}</div><div class="seg">${P.map(([k, l]) => `<button aria-pressed="${ui.poste === k}" data-act="poste" data-id="${k}">${l}</button>`).join('')}</div>`}${ui.poste === 'trial' && !locked(s) ? trialView(s) : chrono(s)}` : ui.tab === 'setup' ? setupView(s) : ui.tab === 'results' ? results(s) : ui.tab === 'analysis' ? analysis(s) : ui.tab === 'export' ? exportView(s) : gpxView(s)}`;
+    ${ui.tab === 'chrono' ? isTrial ? trialView(s) : `${locked(s) || P.length < 2 ? '' : `<div class="label">${t('session.myPost')}</div><div class="seg">${P.map(([k, l]) => `<button aria-pressed="${ui.poste === k}" data-act="poste" data-id="${k}">${l}</button>`).join('')}</div>`}${ui.poste === 'trial' && !locked(s) ? trialView(s) : chrono(s)}` : ui.tab === 'setup' ? setupView(s) : ui.tab === 'results' ? results(s) : ui.tab === 'analysis' ? analysis(s) : ui.tab === 'export' ? exportView(s) : gpxView(s)}`;
   },
   admin() {
     const y = ui.adminTab === 'youth', riders = db.riders.filter(r => r.active !== false).sort((a, b) => a.name.localeCompare(b.name, LOC));
@@ -368,6 +373,18 @@ function footer() {
   return `<footer class="foot">${pick}<span>${VERSION ? t('footer.version', { v: esc(VERSION) }) : ''}</span><button class="linkish" data-act="checkupdate">${t('footer.checkUpdate')}</button></footer>`;
 }
 
+/* Session type: decides which posts are offered. Sessions made before 1.10 have no type and offer every post. */
+const KINDS = ['course', 'circuit', 'trial'];
+const kindOf = s => (s && KINDS.includes(s.kind) ? s.kind : null);
+const kindTag = s => kindOf(s) ? ` <span class="tag kind">${t('kind.' + kindOf(s))}</span>` : '';
+const kindSelect = (id, v) => `<div class="field">${t('kind.label')}<select id="${id}">${KINDS.map(k => `<option value="${k}" ${k === v ? 'selected' : ''}>${t('kind.' + k)}</option>`).join('')}</select></div>`;
+let noKindCol = false;   // database not updated for session types yet (update-1.10.sql)
+function postsOf(s) {
+  const all = { start: t('post.start'), inter: t('post.split'), finish: t('post.finish'), both: t('post.both'), trial: t('post.trial') };
+  const keys = { course: ['start', 'inter', 'finish'], circuit: ['both', 'inter'], trial: [] }[kindOf(s)] || ['start', 'inter', 'finish', 'both', 'trial'];
+  return keys.map(k => [k, all[k]]);
+}
+const sessRow = s => { const row = { ...s, gpx: null }; if (noKindCol) delete row.kind; if (!row.trial) delete row.trial; return row; };
 const noRiders = () => `<li class="hint">${t('chrono.noRiders')}<div class="tools"><button class="ghost" data-act="people">${t('chrono.peopleBtn')}</button></div></li>`;
 function chrono(s) {
   const frozen = locked(s), p = ui.poste, canStart = !frozen && (p === 'start' || p === 'both'), pend = db.pend[s.id] || {};
@@ -487,6 +504,7 @@ function penHtml(pen, max, act, rid, off) {
 function trialView(s) {
   const zones = zonesOf(s);
   if (!zones.length) return `<div class="hint">${t('trial.noZones')}<div class="tools"><button class="ghost" data-act="tab" data-id="setup">${t('trial.goSetup')}</button></div></div>`;
+  if (locked(s)) return `<div class="hint lock">${t('lock.banner', { date: fDate(s.date) })} ${t(isAdmin() ? 'lock.adminHint' : 'lock.coachHint')}</div><div class="tools"><button class="ghost" data-act="tab" data-id="results">${t('tab.results')}</button></div>`;
   const P = trialsOf(s.id), warn = noDataCol || noTrialCol ? `<div class="hint lock on">${t('trial.needDb')}</div>` : '';
   const row = r => {
     const l = liveOf(s.id, r), mine = P.filter(x => x.riderId === r);
@@ -526,8 +544,8 @@ function setupView(s) {
     <label class="field">${t('trial.time')}<input inputmode="decimal" data-z="${z.id}" data-f="time" value="${mmss(z.time)}" placeholder="2:00" ${off ? 'disabled' : ''}></label></div>
     <div class="note">${t('trial.zoneTotal', { gates: z.gates.length, pts: z.gates.reduce((a, b) => a + b, 0) })}</div></div>`;
   return `<h2>${t('setup.session')}</h2><div class="tools"><button class="ghost" data-act="people">${t('chrono.peopleBtn')}</button><button class="ghost" data-act="dup">${t('dup.button')}</button><button class="ghost" data-act="archive">${t(s.archived ? 'chrono.unarchive' : 'chrono.archive')}</button>${isAdmin() ? `<button class="ghost danger" data-act="delsession">${t(ui.confirmDel ? 'sheet.confirmDelete' : 'sheet.deleteSession')}</button>` : ''}</div>
-    <h2>${t('trial.title')}</h2><div class="note">${t('trial.setupHelp')}</div>${warn}${zones.map(zone).join('')}
-    <div class="tools"><button class="ghost" data-act="zadd" ${off ? 'disabled' : ''}>${t('trial.zoneAdd')}</button></div>`;
+    ${kindOf(s) && kindOf(s) !== 'trial' && !zones.length ? '' : `<h2>${t('trial.title')}</h2><div class="note">${t('trial.setupHelp')}</div>${warn}${zones.map(zone).join('')}
+    <div class="tools"><button class="ghost" data-act="zadd" ${off ? 'disabled' : ''}>${t('trial.zoneAdd')}</button></div>`}`;
 }
 function trialChange(el) {
   const s = cur(), z = zonesOf(s).find(x => x.id === el.dataset.z); if (!z || !guard()) return;
@@ -1418,7 +1436,7 @@ function sheet() {
     <button class="primary" type="submit">${t('dup.create')}</button><button type="button" class="ghost" data-act="close">${t('common.cancel')}</button></form></div>`; }
   if (ui.sheet === 'new') return `<div class="veil"><form class="sheet" data-form="new"><h3>${t('sheet.newTitle')}</h3>
     <div class="field">${t('sheet.name')}<input id="n-name" placeholder="${t('sheet.namePlaceholder')}" autocomplete="off"></div>
-    <div class="field">${t('sheet.date')}<input id="n-date" type="date" value="${today()}"></div>
+    <div class="field">${t('sheet.date')}<input id="n-date" type="date" value="${today()}"></div>${kindSelect('n-kind', L.get('kind', 'course'))}${noKindCol ? `<div class="note">${t('kind.needDb')}</div>` : ''}
     <button class="primary" type="submit">${t('sheet.createAndPick')}</button><button type="button" class="ghost" data-act="close">${t('common.cancel')}</button></form></div>`;
   if (ui.sheet === 'runedit') { const x = R.find(q => q.id === ui.runId); if (!x) return ''; const k = R.filter(q => q.riderId === x.riderId && q.start <= x.start).length;
     return `<div class="veil"><form class="sheet" data-form="runedit"><h3>${t('lock.editTitle', { i: k, name: esc(rname(x.riderId)) })}</h3>
@@ -1443,7 +1461,7 @@ function sheet() {
     <div class="field">${t('sheet.addRider')}<input id="q" placeholder="${t('sheet.typeName')}" autocomplete="off"></div><div class="sugg" id="sugg">${sugg('')}</div>
     ${rmChips(s)}<ul class="list">${s.rider_ids.map(r => `<li class="line"><span class="grow">${esc(rname(r))}</span><button data-act="rmrider" data-id="${r}">${t('common.remove')}</button></li>`).join('')}</ul>
     <div class="field">${t('sheet.name')}<input id="e-name" value="${esc(s.name)}" autocomplete="off"></div>
-    <div class="field">${t('sheet.date')}<input id="e-date" type="date" value="${esc(s.date)}" ${locked(s) && !isAdmin() ? 'disabled' : ''}></div>
+    <div class="field">${t('sheet.date')}<input id="e-date" type="date" value="${esc(s.date)}" ${locked(s) && !isAdmin() ? 'disabled' : ''}></div>${kindSelect('e-kind', kindOf(s) || '')}
     <button class="primary" data-act="close">${t('common.done')}</button>
 </div></div>`; }
   return '';
@@ -1639,9 +1657,9 @@ const F = {
   },
   async newpass() { const { error } = await sb.auth.updateUser({ password: $('np').value }); if (error) { toast(t('auth.refused', { msg: error.message })); return; } ui.view = db.me ? 'home' : 'login'; render(); toast(t('toast.passwordSaved')); const { data } = await sb.auth.getSession(); if (data && data.session) afterLogin(data.session.user); },
   // New session with the same riders, no times
-  dup() { const src = cur(); if (!src) return; const s = { id: uuid(), name: $('d-name').value.trim() || src.name, date: $('d-date').value || today(), archived: false, rider_ids: [...src.rider_ids] };
-    db.sessions.push(s); save('sessions'); queue({ k: 'ins', t: 'sessions', row: { ...s, gpx: null } }); ui.sheet = null; A.open({ id: s.id }); render(); toast(t('dup.done', { name: s.name })); },
-  new() { const s = { id: uuid(), name: $('n-name').value.trim() || t('sheet.untitled'), date: $('n-date').value || today(), archived: false, rider_ids: [] }; db.sessions.push(s); save('sessions'); queue({ k: 'ins', t: 'sessions', row: { ...s, gpx: null } }); A.open({ id: s.id }); ui.sheet = 'people'; render(); },
+  dup() { const src = cur(); if (!src) return; const s = { id: uuid(), name: $('d-name').value.trim() || src.name, date: $('d-date').value || today(), archived: false, rider_ids: [...src.rider_ids] }; if (kindOf(src)) s.kind = src.kind; if (zonesOf(src).length) s.trial = JSON.parse(JSON.stringify(src.trial));
+    db.sessions.push(s); save('sessions'); queue({ k: 'ins', t: 'sessions', row: sessRow(s) }); ui.sheet = null; A.open({ id: s.id }); render(); toast(t('dup.done', { name: s.name })); },
+  new() { const s = { id: uuid(), name: $('n-name').value.trim() || t('sheet.untitled'), date: $('n-date').value || today(), archived: false, rider_ids: [], kind: $('n-kind').value }; L.set('kind', s.kind); db.sessions.push(s); save('sessions'); queue({ k: 'ins', t: 'sessions', row: sessRow(s) }); A.open({ id: s.id }); ui.sheet = 'people'; render(); },
   youth() { const n = $('new-youth').value.trim(), g = $('new-grp').value.trim(), c = $('new-cat').value.trim(); if (!n) return; if (db.riders.some(r => r.active !== false && r.name.toLowerCase() === n.toLowerCase())) { toast(t('toast.riderExists', { name: n })); return; } addRider(n, g, c); render(); $('new-youth').focus(); },
   rider() { const r = db.riders.find(x => x.id === ui.edit); if (!r) return; const p = { name: $('r-name').value.trim() || r.name, grp: $('r-grp').value.trim() }, c = $('r-cat').value.trim();
     if (c || r.category) p.category = c; Object.assign(r, p); save('riders'); queue({ k: 'upd', t: 'riders', id: r.id, patch: p }); ui.sheet = null; render(); toast(t('toast.riderSaved', { name: r.name })); },
@@ -1675,6 +1693,7 @@ document.addEventListener('change', e => {
   if (e.target.dataset && e.target.dataset.z && e.target.dataset.f) { trialChange(e.target); return; }
   if (id === 'lang-pick') { L.set('lang', e.target.value); setLang(e.target.value); e.target.blur(); render(); return; }
   if (id === 'e-name' && s) { const v = e.target.value.trim(); if (v) { s.name = v; save('sessions'); queue({ k: 'upd', t: 'sessions', id: s.id, patch: { name: v } }); } }
+  if (id === 'e-kind' && s && KINDS.includes(e.target.value)) { s.kind = e.target.value; save('sessions'); queue({ k: 'upd', t: 'sessions', id: s.id, patch: { kind: s.kind } }); if (noKindCol) toast(t('kind.needDb')); render(); return; }
   if (id === 'e-date' && s && e.target.value) { s.date = e.target.value; save('sessions'); queue({ k: 'upd', t: 'sessions', id: s.id, patch: { date: s.date } }); }
   if (e.target.dataset && e.target.dataset.track) { const tr = tracksOf(ui.sid), tk = tr.find(x => x.id === e.target.dataset.track); if (tk) { tk.riderId = e.target.value || null; saveTracks(ui.sid, tr); } e.target.blur(); render(); return; }
   if (id === 'gpx-file') { const f = e.target.files && e.target.files[0], sid = ui.sid; e.target.value = ''; if (!f) return;
