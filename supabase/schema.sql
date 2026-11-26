@@ -39,6 +39,7 @@ create table if not exists public.sessions (
   archived   boolean not null default false,
   rider_ids  uuid[] not null default '{}',
   gpx        jsonb,
+  trial      jsonb,                     -- trial zones: gates and their points, penalties, time limit
   created_by uuid default auth.uid(),
   created_at timestamptz not null default now()
 );
@@ -49,9 +50,10 @@ create table if not exists public.events (
   id         uuid primary key,
   session_id uuid not null references public.sessions(id) on delete cascade,
   rider_id   uuid not null,
-  type       text not null check (type in ('start','split','lap','finish','void')),
+  type       text not null check (type in ('start','split','lap','finish','void','trial')),
   ts         bigint not null,           -- moment of the tap, in milliseconds (server clock)
-  target     uuid,                      -- for 'void': the tap being undone
+  target     uuid,                      -- for 'void': the tap being undone; for 'trial': the passage corrected
+  data       jsonb,                     -- trial passage: zone, gates, penalties, time
   created_by uuid default auth.uid(),
   created_at timestamptz not null default now()
 );

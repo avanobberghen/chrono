@@ -14,6 +14,7 @@ One coach stands at the start, others at split points or at the finish. A start 
 - Staggered and group starts, several riders on course at once, lap or finish chosen after the stop, DNF (did not finish).
 - Results per rider: every run, best, average and slowest time, split and lap details, `.csv` export.
 - Rankings and analysis for everyone or per category.
+- Trial training: zones with gates worth 3, 5 or 10 points, penalties and a time limit, judged on a **Trial** post, with a trial ranking.
 - PDF export of a session (ranking, charts, sectors, every run) to share with the riders, made on the phone, even offline.
 - Analysis: every run on one time axis, gap to the session best, progress during the session, sectors with the ideal time, laps, speeds.
 - Offline: taps are stored on the phone and synced later; phone clocks are aligned on the server clock.
@@ -47,6 +48,7 @@ Riders' names and times are stored only in Supabase and are visible only to sign
 | `docs/` | Screenshots for this README |
 
 ---
+
 
 ## Installation (30 to 45 minutes)
 
@@ -168,6 +170,22 @@ When riders of a session have categories:
 - With *All*, the Analysis tab adds a **By category** table (best and typical best time per category), and the PDF ranking gets a "rank in category" column.
 - In a session's rider list, "+ All of U13" adds every rider of that category at once.
 
+## Trial
+
+For trial training, each session can have **trial zones**. In the session's **Setup** tab, add a zone, name it, and set its gates: tap a gate to switch between 3 (green), 5 (blue) and 10 (red) points, and use **+ Gate** / **− Gate** to change their number (6 by default). Each zone also has a maximum number of penalties (5 by default: the rider is stopped at the 5th) and a time allowed (2:00 by default).
+
+To judge, choose the **Trial** post. Riders pass one at a time: tap **Passage** on a rider's row to open it, pick the zone, then **Start**.
+
+- Tap a gate when it is cleared; tap again to clear it.
+- **+** adds a penalty, **−** removes one entered by mistake.
+- **Stop** stops the clock. You can still correct gates and penalties, then **Start** again, **Pause** (the rider fixes the bike and comes back later: tap **Resume** on the row), or **Finish**.
+- When the time allowed runs out, or when the maximum number of penalties is reached, the clock stops as if you had tapped Stop, and the passage gets the full time allowed. Gates and penalties can still be corrected, then only **Finish** remains.
+- **Finish** saves the passage and closes the row.
+
+A passage in progress stays on the judging phone; it is shared with the other coaches when it is finished. In **Results**, the trial ranking adds up all passages of each rider: most points first, then fewest penalties, then the shortest total time. Each passage can be corrected (gates, penalties, time) or deleted.
+
+Trial needs two extra columns in the database. On an existing installation, run `supabase/update-1.9.sql` once in the Supabase SQL editor (new installations get them from `schema.sql`). Until then, the app shows a warning in the Setup tab and on the Trial post.
+
 ## Sharing results as a PDF
 
 The **Export** tab of a session creates an A4 PDF, condensed onto a single page (a very large group, where text would become too small, goes over several pages instead) to send to the riders (or their parents) after training. It always contains the club logo and name, the session, a summary and the **ranking** (best, average, slowest time, gap, speed when a GPS track was imported). Tick what else to include:
@@ -254,8 +272,9 @@ Some versions need a change in the database. They come with a file in `supabase/
 | Version | File | What it adds |
 |---|---|---|
 | 1.4 | `supabase/update-1.4.sql` | Rider categories |
+| 1.9 | `supabase/update-1.9.sql` | Trial zones and passages |
 
-Until it is run, the app keeps working but categories are not saved, and the Admin screen shows a reminder. New installations do not need these files: `schema.sql` already includes everything.
+Until it is run, the app keeps working but the new data is not saved (categories, trial), and the app shows a reminder. New installations do not need these files: `schema.sql` already includes everything.
 
 ### What to do after changing files
 

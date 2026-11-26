@@ -25,7 +25,7 @@ const L = {
 const db = {
   me: L.get('me', null), riders: L.get('riders', []), sessions: L.get('sessions', []), events: L.get('events', {}),
   gpx: L.get('gpx', {}), outbox: L.get('outbox', []), failed: L.get('failed', []), offset: L.get('offset', 0),
-  coaches: L.get('coaches', []), pend: L.get('pend', {})
+  coaches: L.get('coaches', []), pend: L.get('pend', {}), live: L.get('live', {})
 };
 const save = (...keys) => keys.forEach(k => L.set(k, db[k]));
 
@@ -82,7 +82,7 @@ const $ = id => document.getElementById(id);
 
 /* ---------- screen state ---------- */
 const ui = { view: db.me ? 'home' : 'login', sid: null, tab: 'chrono', poste: L.get('poste', 'start'), sheet: null, adminTab: 'youth',
-  multi: false, sel: [], showArch: false, det: {}, cat: '', exp: { analysis: true, map: true, track: true, runs: false }, pdf: null, loginMode: 'in', undo: null, confirmDel: false, busy: false };
+  multi: false, sel: [], showArch: false, det: {}, cat: '', exp: { analysis: true, map: true, track: true, runs: false }, pdf: null, loginMode: 'in', undo: null, confirmDel: false, busy: false, tzone: L.get('tzone', null), tedit: null, zdel: null };
 const app = $('app');
 let R = [], ORPH = {};            // runs computed for the open session, taps received before their start
 let netOK = navigator.onLine !== false, authed = false, pushing = false;
@@ -105,7 +105,7 @@ const isAdmin = () => db.me && db.me.role === 'admin';
 /* ---------- runs, computed from the event log ---------- */
 function runsOf(sid) {
   const evs = db.events[sid] || [], voided = new Set(evs.filter(e => e.type === 'void').map(e => e.target));
-  const list = evs.filter(e => e.type !== 'void' && !voided.has(e.id)).sort((a, b) => a.ts - b.ts);
+  const list = evs.filter(e => e.type !== 'void' && e.type !== 'trial' && !voided.has(e.id)).sort((a, b) => a.ts - b.ts);
   const open = {}, runs = [], orph = {};
   for (const e of list) {
     const o = open[e.rider_id];
@@ -133,8 +133,9 @@ const times = r => R.filter(x => x.riderId === r && x.end != null).map(x => x.en
 const best = r => { const ts = times(r); return ts.length ? Math.min(...ts) : null; };
 
 /* ---------- event log: record a tap ---------- */
-function emit(type, riderId, ts, target) {
+function emit(type, riderId, ts, target, data) {
   const ev = { id: uuid(), session_id: ui.sid, rider_id: riderId, type, ts: Math.round(ts), target: target || null };
+  if (data) ev.data = data;   // trial passages only: other taps keep working on a database without the data column
   (db.events[ui.sid] = db.events[ui.sid] || []).push(ev);
   db.outbox.push({ k: 'ins', t: 'events', row: ev });
   save('events', 'outbox'); push();
@@ -191,13 +192,14 @@ async function pull() {
   try {
     const [r, s] = await Promise.all([
       sb.from('riders').select(noCatCol ? 'id,name,grp,active' : 'id,name,grp,active,category').order('name'),
-      sb.from('sessions').select('id,name,date,archived,rider_ids').order('date', { ascending: false })
+      sb.from('sessions').select(noTrialCol ? 'id,name,date,archived,rider_ids' : 'id,name,date,archived,rider_ids,trial').order('date', { ascending: false })
     ]);
-    if (r.error && r.error.code === '42703' && !noCatCol) { noCatCol = true; return pull(); }   // database not updated for categories yet (see README)
+    if (r.error && r.error.code === '42703' && !noCatCol) { noCatCol = true; return pull(); }
+    if (s.error && s.error.code === '42703' && !noTrialCol) { noTrialCol = true; return pull(); }   // trial column not added yet (update-1.9.sql)   // database not updated for categories yet (see README)
     const err = r.error || s.error;
     if (err) { if (isNetErr(err)) setNet(false); else if (isAuthErr(r.error ? r : s)) authed = false; paintNet(); return; }
     setNet(true);
-    db.riders = mergeRows(db.riders, r.data, 'riders'); db.sessions = mergeRows(db.sessions, s.data, 'sessions');
+    db.riders = mergeRows(db.riders, r.data, 'riders'); const tr = new Map(db.sessions.map(x => [x.id, x.trial])); db.sessions = mergeRows(db.sessions, s.data, 'sessions'); db.sessions.forEach(x => { if (!('trial' in x) && tr.get(x.id)) x.trial = tr.get(x.id); });
     save('riders', 'sessions');
     if (ui.view === 'session' && !cur()) { ui.view = 'home'; toast(t('toast.sessionGone')); }
     if (ui.view === 'session') await pullEvents(ui.sid);
@@ -210,7 +212,8 @@ async function pullEvents(sid) {
   try {
     let all = [], from = 0;
     for (;;) {
-      const { data, error } = await sb.from('events').select('id,session_id,rider_id,type,ts,target').eq('session_id', sid).order('created_at').order('id').range(from, from + 999);
+      const { data, error } = await sb.from('events').select(noDataCol ? 'id,session_id,rider_id,type,ts,target' : 'id,session_id,rider_id,type,ts,target,data').eq('session_id', sid).order('created_at').order('id').range(from, from + 999);
+      if (error && error.code === '42703' && !noDataCol) { noDataCol = true; return pullEvents(sid); }
       if (error) { if (isNetErr(error)) setNet(false); return; }
       all = all.concat(data); if (data.length < 1000) break; from += 1000;
     }
@@ -258,7 +261,7 @@ function subscribeSession(sid) {
     .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'events', filter: 'session_id=eq.' + sid }, p => {
       const e = p.new, list = db.events[sid] = db.events[sid] || [];
       if (!e || list.some(x => x.id === e.id)) return;
-      list.push({ id: e.id, session_id: e.session_id, rider_id: e.rider_id, type: e.type, ts: Number(e.ts), target: e.target });
+      list.push({ id: e.id, session_id: e.session_id, rider_id: e.rider_id, type: e.type, ts: Number(e.ts), target: e.target, data: e.data || null });
       save('events'); render(true);
     })
     .subscribe(st => { if (st === 'SUBSCRIBED') pullEvents(sid); });
@@ -335,13 +338,13 @@ const V = {
     ${footer()}<button class="fab" data-act="new" aria-label="${t('home.newSession')}">+</button>`;
   },
   session() {
-    const s = cur(), P = [['start', t('post.start')], ['inter', t('post.split')], ['finish', t('post.finish')], ['both', t('post.both')]];
-    const T = [['chrono', t('tab.chrono')], ['results', t('tab.results')], ['analysis', t('tab.analysis')], ['gpx', t('tab.gpx')], ['export', t('tab.export')]], [c, lab] = netLabel();
+    const s = cur(), P = [['start', t('post.start')], ['inter', t('post.split')], ['finish', t('post.finish')], ['both', t('post.both')], ['trial', t('post.trial')]];
+    const T = [['chrono', t('tab.chrono')], ['results', t('tab.results')], ['analysis', t('tab.analysis')], ['gpx', t('tab.gpx')], ['export', t('tab.export')], ['setup', t('tab.setup')]], [c, lab] = netLabel();
     return `<header class="bar"><button class="back" data-act="home">‹ ${t('session.back')}</button><span style="flex:1"></span>
       <button class="net ${c}" id="net" data-act="sync"><i></i>${esc(lab)}</button></header>
     <header class="bar" style="padding-top:0"><h1>${esc(s.name)}<small>${fDate(s.date)} · ${nRiders(s.rider_ids.length)}${s.archived ? ' · ' + t('session.archived') : ''}</small></h1></header>
     <div class="tabs" role="tablist">${T.map(([k, l]) => `<button role="tab" aria-selected="${ui.tab === k}" data-act="tab" data-id="${k}">${l}</button>`).join('')}</div>
-    ${ui.tab === 'chrono' ? `${locked(s) ? '' : `<div class="label">${t('session.myPost')}</div><div class="seg">${P.map(([k, l]) => `<button aria-pressed="${ui.poste === k}" data-act="poste" data-id="${k}">${l}</button>`).join('')}</div>`}${chrono(s)}` : ui.tab === 'results' ? results(s) : ui.tab === 'analysis' ? analysis(s) : ui.tab === 'export' ? exportView(s) : gpxView(s)}`;
+    ${ui.tab === 'chrono' ? `${locked(s) ? '' : `<div class="label">${t('session.myPost')}</div><div class="seg">${P.map(([k, l]) => `<button aria-pressed="${ui.poste === k}" data-act="poste" data-id="${k}">${l}</button>`).join('')}</div>`}${ui.poste === 'trial' && !locked(s) ? trialView(s) : chrono(s)}` : ui.tab === 'setup' ? setupView(s) : ui.tab === 'results' ? results(s) : ui.tab === 'analysis' ? analysis(s) : ui.tab === 'export' ? exportView(s) : gpxView(s)}`;
   },
   admin() {
     const y = ui.adminTab === 'youth', riders = db.riders.filter(r => r.active !== false).sort((a, b) => a.name.localeCompare(b.name, LOC));
@@ -409,8 +412,9 @@ function results(s) {
   const ids = [...new Set([...s.rider_ids, ...R.map(r => r.riderId)])].filter(r => (times(r).length || dnfs(r)) && inCat(r)).sort((a, b) => (best(a) ?? 1e15) - (best(b) ?? 1e15)), chips = catChips(s);
   const ed = canChange(s), lockBar = locked(s) ? (isAdmin() ? `<div class="hint lock ${editing(s) ? 'on' : ''}">${t(editing(s) ? 'lock.editing' : 'lock.frozen')}<div class="tools"><button class="${editing(s) ? 'primary' : 'ghost'}" data-act="editres">${t(editing(s) ? 'lock.stopEdit' : 'lock.edit')}</button>${editing(s) ? `<button class="ghost" data-act="runadd">${t('lock.addRun')}</button>` : ''}</div></div>` : `<div class="hint lock">${t('lock.frozen')}</div>`) : '';
   const addBtn = ed && !locked(s) ? `<div class="tools"><button class="ghost" data-act="runadd">${t('lock.addRun')}</button></div>` : '';   // frozen sessions: in the admin bar above
-  if (!ids.length) return `${chips}${lockBar}<div class="hint">${t('results.none')}</div>${addBtn}`;
-  return `${chips}${lockBar}<ul class="list">${ids.map((r, i) => {
+  const tri = trialResults(s);
+  if (!ids.length) return `${chips}${lockBar}${tri || `<div class="hint">${t('results.none')}</div>`}${addBtn}`;
+  return `${chips}${lockBar}${tri}${tri ? `<h2>${t('tab.chrono')}</h2>` : ''}<ul class="list">${ids.map((r, i) => {
     const ts = times(r), avg = ts.length ? ts.reduce((a, b) => a + b, 0) / ts.length : null, runs = R.filter(x => x.riderId === r && (x.end != null || x.dnf != null)), nd = dnfs(r);
     return `<li><details class="res"><summary><span class="pos">${ts.length ? i + 1 : '–'}</span><div class="who"><b>${esc(rname(r))}</b><small>${[nRuns(ts.length), nd ? t('chrono.dnfCount', { n: nd }) : '', rcat(r) ? esc(rcat(r)) : '', t('results.details')].filter(Boolean).join(' · ')}</small></div>
       ${ts.length ? `<div class="stats"><span>${t('results.best')}</span><span>${t('results.avg')}</span><span>${t('results.max')}</span><b class="best">${fmt(Math.min(...ts))}</b><b>${fmt(avg)}</b><b>${fmt(Math.max(...ts))}</b></div>` : `<b class="dnftag">${t('btn.dnf')}</b>`}</summary>
@@ -419,6 +423,177 @@ function results(s) {
         if (x.dnf != null) return `<div><span>${k + 1}.</span><b class="dnftag">${t('btn.dnf')}</b><em>${t('results.dnfAfter', { time: fmt(x.dnf - x.start) })}${ex.length ? ' · ' + ex.join(' · ') : ''}</em>${tools}</div>`;
         return `<div><span>${k + 1}.</span><b>${fmt(x.end - x.start)}</b><em>${ex.join(' · ')}</em>${tools}</div>`; }).join('')}</div></details></li>`; }).join('')}</ul>
   ${addBtn}<div class="tools"><button class="ghost" data-act="csv">${t('results.exportCsv')}</button><button class="ghost" data-act="copy">${t('results.copy')}</button></div>`;
+}
+
+/* ---------- Trial: zones with gates worth points, penalties and a time limit ---------- */
+// Zones are set per session in the Setup tab (sessions.trial). A finished passage is one 'trial' row in the
+// event log, with its details in `data`; a correction adds a new row whose target is the row it replaces.
+// A passage in progress (timer, gates, penalties) lives on the judging phone only, until "Finish".
+const GATE_PTS = [3, 5, 10], DEF_GATES = [3, 3, 5, 5, 10, 5], DEF_PEN = 5, DEF_TIME = 120000;
+const zonesOf = s => (s && s.trial && s.trial.zones) || [];
+const gateCls = p => p >= 10 ? 'g10' : p >= 5 ? 'g5' : 'g3';
+const mmss = ms => { const v = Math.max(0, Math.ceil(ms / 1000)); return Math.floor(v / 60) + ':' + String(v % 60).padStart(2, '0'); };
+const tpts = d => d.g.reduce((a, [p, ok]) => a + (ok ? p : 0), 0);
+let noTrialCol = false, noDataCol = false;   // database not updated for trial yet (supabase/update-1.9.sql)
+
+function saveTrial(s) {
+  save('sessions'); queue({ k: 'upd', t: 'sessions', id: s.id, patch: { trial: s.trial } });
+  if (noTrialCol) toast(t('trial.needDb'));
+}
+// Finished passages of a session, corrections applied
+function trialsOf(sid) {
+  const evs = (db.events[sid] || []), voided = new Set(evs.filter(e => e.type === 'void').map(e => e.target));
+  const tr = evs.filter(e => e.type === 'trial' && e.data && !voided.has(e.id)), replaced = new Set(tr.map(e => e.target).filter(Boolean));
+  const first = new Map(tr.map(e => [e.id, e.ts]));   // a corrected passage keeps its place: the time of the original
+  return tr.filter(e => !replaced.has(e.id)).map(e => ({ id: e.id, orig: e.data.o || e.id, riderId: e.rider_id, ts: first.get(e.data.o) || e.ts, ...e.data, pts: tpts(e.data) }))
+    .sort((a, b) => a.ts - b.ts);
+}
+// Ranking: all passages count. Most points, then fewest penalties, then the fastest.
+function trialRank(sid, ids) {
+  const P = trialsOf(sid);
+  return ids.map(r => { const ps = P.filter(x => x.riderId === r);
+    return { r, ps, n: ps.length, pts: ps.reduce((a, x) => a + x.pts, 0), pen: ps.reduce((a, x) => a + x.pen, 0), ms: ps.reduce((a, x) => a + x.ms, 0) }; })
+    .filter(x => x.n).sort((a, b) => b.pts - a.pts || a.pen - b.pen || a.ms - b.ms);
+}
+
+// Passages in progress on this phone: db.live[sid][riderId]
+const liveOf = (sid, r) => (db.live[sid] || {})[r];
+const elapsed = l => l.acc + (l.st === 'run' ? now() - l.from : 0);
+function setLive(sid, r, l) { const m = db.live[sid] = db.live[sid] || {}; if (l) m[r] = l; else delete m[r]; save('live'); }
+function newLive(s, zid) {
+  const z = zonesOf(s).find(x => x.id === zid) || zonesOf(s)[0];
+  return { st: 'ready', z: { id: z.id, name: z.name, gates: [...z.gates], pen: z.pen, time: z.time }, gates: z.gates.map(() => 0), pen: 0, acc: 0, from: null };
+}
+// Time over (or maximum penalties): stops the timer, only "Finish" remains
+function overLive(l, why) { if (l.st === 'run') l.acc = elapsed(l); l.before = l.acc; l.acc = l.z.time; l.st = 'over'; l.why = why; l.from = null; }
+function trialTick() {
+  const s = cur(); if (!s || ui.view !== 'session') return;
+  let changed = false;
+  Object.entries(db.live[s.id] || {}).forEach(([r, l]) => { if (l.st === 'run' && elapsed(l) >= l.z.time) { overLive(l, 'time'); changed = true; buzz(); } });
+  if (changed) { save('live'); render(); return; }
+  document.querySelectorAll('[data-tleft]').forEach(el => { const l = liveOf(s.id, el.dataset.tleft); if (l) el.textContent = mmss(l.z.time - elapsed(l)); });
+}
+
+function gatesHtml(gates, done, act, rid, off) {
+  return `<div class="gates">${gates.map((p, i) => `<button class="gate ${gateCls(p)}" aria-pressed="${!!done[i]}" data-act="${act}" data-id="${rid}" data-i="${i}" ${off ? 'disabled' : ''} aria-label="${esc(t('trial.gateAria', { i: i + 1, pts: p }))}"><b>${t('trial.gateShort', { i: i + 1 })}</b><span>${p}</span></button>`).join('')}</div>`;
+}
+function penHtml(pen, max, act, rid, off) {
+  return `<div class="pen"><button class="act x" data-act="${act}" data-id="${rid}" data-d="-1" ${off || !pen ? 'disabled' : ''} aria-label="${t('trial.penLess')}">−</button>
+    <div><small>${t('trial.penalties')}</small><b class="${pen >= max ? 'max' : ''}">${pen}/${max}</b></div>
+    <button class="act x" data-act="${act}" data-id="${rid}" data-d="1" ${off || pen >= max ? 'disabled' : ''} aria-label="${t('trial.penMore')}">+</button></div>`;
+}
+// The Trial post: riders pass one at a time, so each row opens up for the passage
+function trialView(s) {
+  const zones = zonesOf(s);
+  if (!zones.length) return `<div class="hint">${t('trial.noZones')}<div class="tools"><button class="ghost" data-act="tab" data-id="setup">${t('trial.goSetup')}</button></div></div>`;
+  const P = trialsOf(s.id), warn = noDataCol || noTrialCol ? `<div class="hint lock on">${t('trial.needDb')}</div>` : '';
+  const row = r => {
+    const l = liveOf(s.id, r), mine = P.filter(x => x.riderId === r);
+    const sum = mine.length ? t('trial.summary', { runs: nRuns(mine.length), pts: mine.reduce((a, x) => a + x.pts, 0), pen: mine.reduce((a, x) => a + x.pen, 0) }) : t('chrono.notStarted');
+    if (!l || l.st === 'pause') {
+      const sub = l ? t('trial.paused', { zone: esc(l.z.name), left: mmss(l.z.time - l.acc) }) : sum;
+      return `<li class="row ${l ? 'run' : ''}"><span class="pos">${l ? '⏸' : mine.length || '–'}</span><div class="who"><b>${esc(rname(r))}</b><small>${sub}</small></div><span></span>
+        <button class="act ${l ? 'lap' : 'go'}" data-act="${l ? 'tresume' : 'topen'}" data-id="${r}">${t(l ? 'trial.resume' : 'trial.passage')}</button></li>`;
+    }
+    const ready = l.st === 'ready', done = l.gates.filter(Boolean).length, pts = l.z.gates.reduce((a, p, i) => a + (l.gates[i] ? p : 0), 0);
+    const zone = ready && zones.length > 1 ? `<div class="chips">${zones.map(z => `<button class="chip ${z.id === l.z.id ? 'on' : ''}" data-act="tzone" data-id="${r}" data-z="${z.id}">${esc(z.name)}</button>`).join('')}</div>` : `<div class="tzone">${esc(l.z.name)}</div>`;
+    const clock = l.st === 'over' ? `<div class="tclock over"><b>${mmss(l.z.time - l.acc)}</b><small>${t(l.why === 'pen' ? 'trial.overPen' : 'trial.overTime')}</small></div>`
+      : `<div class="tclock ${l.st === 'run' ? 'on' : ''}"><b data-tleft="${r}">${mmss(l.z.time - elapsed(l))}</b><small>${t('trial.left')}</small></div>`;
+    const btns = ready ? `<button class="act go" data-act="tgo" data-id="${r}">${t('btn.start')}</button><button class="ghost" data-act="tcancel" data-id="${r}">${t('common.cancel')}</button>`
+      : l.st === 'run' ? `<button class="act stop" data-act="tstop" data-id="${r}">${t('btn.stop')}</button>`
+      : l.st === 'stop' ? `<button class="act go" data-act="tgo" data-id="${r}">${t('btn.start')}</button><button class="act lap" data-act="tpause" data-id="${r}">${t('trial.pause')}</button><button class="act stop" data-act="tfin" data-id="${r}">${t('btn.finish')}</button>`
+      : `<button class="act stop" data-act="tfin" data-id="${r}">${t('btn.finish')}</button>`;
+    return `<li class="tcard"><div class="thead"><div class="who"><b>${esc(rname(r))}</b><small>${mine.length ? sum : ''}</small></div>${clock}</div>${zone}
+      ${gatesHtml(l.z.gates, l.gates, 'tgate', r, ready)}
+      <div class="tsum"><span>${t('trial.gatesDone', { n: done, of: l.z.gates.length })}</span><b>${t('trial.ptsTotal', { pts })}</b></div>
+      ${penHtml(l.pen, l.z.pen, 'tpen', r, ready)}<div class="tbtns">${btns}</div></li>`;
+  };
+  return `${warn}<ul class="list">${s.rider_ids.map(row).join('') || `<li class="hint">${t('chrono.noRiders')}</li>`}</ul>
+  <div class="tools"><button class="ghost" data-act="people">${t('chrono.peopleBtn')}</button></div>`;
+}
+
+// Setup tab: the trial zones of the session
+function setupView(s) {
+  const zones = zonesOf(s), off = !canChange(s);
+  const warn = noTrialCol ? `<div class="hint lock on">${t('trial.needDb')}</div>` : '';
+  const zone = (z, k) => `<div class="zcard"><div class="zhead"><input class="zname" data-z="${z.id}" data-f="name" value="${esc(z.name)}" aria-label="${t('trial.zoneName')}" ${off ? 'disabled' : ''}>
+      <button class="ghost danger" data-act="zdel" data-z="${z.id}" ${off ? 'disabled' : ''}>${t(ui.zdel === z.id ? 'trial.zoneDelConfirm' : 'results.delete')}</button></div>
+    <div class="note">${t('trial.gatesHelp')}</div>
+    <div class="gates">${z.gates.map((p, i) => `<button class="gate ${gateCls(p)} on" data-act="zgate" data-z="${z.id}" data-i="${i}" ${off ? 'disabled' : ''} aria-label="${esc(t('trial.gateAria', { i: i + 1, pts: p }))}"><b>${t('trial.gateShort', { i: i + 1 })}</b><span>${p}</span></button>`).join('')}</div>
+    <div class="tools"><button class="ghost" data-act="zgadd" data-z="${z.id}" ${off ? 'disabled' : ''}>${t('trial.gateAdd')}</button><button class="ghost" data-act="zgrm" data-z="${z.id}" ${off || z.gates.length < 2 ? 'disabled' : ''}>${t('trial.gateRemove')}</button></div>
+    <div class="zrow"><label class="field">${t('trial.maxPen')}<input type="number" min="1" max="99" inputmode="numeric" data-z="${z.id}" data-f="pen" value="${z.pen}" ${off ? 'disabled' : ''}></label>
+    <label class="field">${t('trial.time')}<input inputmode="decimal" data-z="${z.id}" data-f="time" value="${mmss(z.time)}" placeholder="2:00" ${off ? 'disabled' : ''}></label></div>
+    <div class="note">${t('trial.zoneTotal', { gates: z.gates.length, pts: z.gates.reduce((a, b) => a + b, 0) })}</div></div>`;
+  return `<h2>${t('trial.title')}</h2><div class="note">${t('trial.setupHelp')}</div>${warn}${zones.map(zone).join('')}
+    <div class="tools"><button class="ghost" data-act="zadd" ${off ? 'disabled' : ''}>${t('trial.zoneAdd')}</button></div>`;
+}
+function trialChange(el) {
+  const s = cur(), z = zonesOf(s).find(x => x.id === el.dataset.z); if (!z || !guard()) return;
+  const f = el.dataset.f, v = el.value.trim();
+  if (f === 'name') { if (!v) return; z.name = v; }
+  if (f === 'pen') { const n = parseInt(v, 10); if (!(n >= 1)) { toast(t('trial.badPen')); return; } z.pen = Math.min(99, n); }
+  if (f === 'time') { const ms = parseTime(v); if (!ms) { toast(t('trial.badTime')); return; } z.time = ms; }
+  saveTrial(s); render();
+}
+
+// Results: trial ranking with each passage, editable like timed runs
+function trialResults(s) {
+  const ids = [...new Set([...s.rider_ids, ...trialsOf(s.id).map(x => x.riderId)])].filter(inCat), rows = trialRank(s.id, ids);
+  if (!rows.length) return '';
+  const ed = canChange(s);
+  return `<h2>${t('trial.title')}</h2><ul class="list">${rows.map((x, i) => {
+    const zs = [...new Set(x.ps.map(p => p.z))], byZone = zs.length > 1 ? zs.map(z => { const q = x.ps.filter(p => p.z === z);
+      return `<div class="zsum"><span>${esc(q[q.length - 1].zn)}</span><em>${t('trial.line', { pts: q.reduce((a, p) => a + p.pts, 0), pen: q.reduce((a, p) => a + p.pen, 0), time: mmss(q.reduce((a, p) => a + p.ms, 0)) })}</em></div>`; }).join('') : '';
+    return `<li><details class="res"><summary><span class="pos">${i + 1}</span><div class="who"><b>${esc(rname(x.r))}</b><small>${[nRuns(x.n), rcat(x.r) ? esc(rcat(x.r)) : '', t('results.details')].filter(Boolean).join(' · ')}</small></div>
+      <div class="stats"><span>${t('trial.pts')}</span><span>${t('trial.penShort')}</span><span>${t('trial.timeShort')}</span><b class="best">${x.pts}</b><b>${x.pen}</b><b>${mmss(x.ms)}</b></div></summary>
+      <div class="runs">${byZone}${x.ps.map((p, k) => `<div><span>${k + 1}.</span><b>${t('trial.ptsTotal', { pts: p.pts })}</b><em>${esc(p.zn)} · ${t('trial.gatesDone', { n: p.g.filter(g => g[1]).length, of: p.g.length })} · ${t('trial.penN', { n: p.pen })} · ${mmss(p.ms)}${p.over ? ' · ' + t(p.over === 'pen' ? 'trial.overPen' : 'trial.overTime') : ''}</em>${ed ? `<button class="mod" data-act="tedit" data-id="${p.id}">${t('lock.modify')}</button><button data-act="tdel" data-id="${p.id}">${t('results.delete')}</button>` : ''}</div>`).join('')}</div></details></li>`; }).join('')}</ul>
+    <div class="note">${t('trial.rankNote')}</div>`;
+}
+function trialEditSheet() {
+  const d = ui.tedit; if (!d) return '';
+  return `<div class="veil"><form class="sheet" data-form="tedit"><h3>${t('trial.editTitle', { name: esc(rname(d.riderId)), zone: esc(d.zn) })}</h3>
+    ${gatesHtml(d.g.map(g => g[0]), d.g.map(g => g[1]), 'tegate', 'x', false)}
+    <div class="tsum"><span>${t('trial.gatesDone', { n: d.g.filter(g => g[1]).length, of: d.g.length })}</span><b>${t('trial.ptsTotal', { pts: tpts(d) })}</b></div>
+    ${penHtml(d.pen, d.max, 'tepen', 'x', false)}
+    <div class="field">${t('lock.time')}<input id="te-time" inputmode="decimal" autocomplete="off" value="${mmss(d.ms)}" placeholder="1:23"></div>
+    <button class="primary" type="submit">${t('common.save')}</button><button type="button" class="ghost" data-act="close">${t('common.cancel')}</button></form></div>`;
+}
+const TA = {
+  zadd() { const s = cur(); if (!guard()) return; s.trial = s.trial || { zones: [] }; s.trial.zones = s.trial.zones || [];
+    s.trial.zones.push({ id: uuid().slice(0, 8), name: t('trial.zoneN', { n: s.trial.zones.length + 1 }), gates: [...DEF_GATES], pen: DEF_PEN, time: DEF_TIME }); saveTrial(s); },
+  zdel(d) { const s = cur(); if (!guard()) return; if (ui.zdel !== d.z) { ui.zdel = d.z; return; } ui.zdel = null; s.trial.zones = zonesOf(s).filter(z => z.id !== d.z); saveTrial(s); },
+  zgate(d) { const s = cur(), z = zonesOf(s).find(x => x.id === d.z); if (!z || !guard()) return; const i = +d.i; z.gates[i] = GATE_PTS[(GATE_PTS.indexOf(z.gates[i]) + 1) % GATE_PTS.length]; saveTrial(s); },
+  zgadd(d) { const s = cur(), z = zonesOf(s).find(x => x.id === d.z); if (!z || !guard()) return; z.gates.push(3); saveTrial(s); },
+  zgrm(d) { const s = cur(), z = zonesOf(s).find(x => x.id === d.z); if (!z || !guard() || z.gates.length < 2) return; z.gates.pop(); saveTrial(s); },
+  topen(d) { if (!guard()) return; const s = cur(); setLive(s.id, d.id, newLive(s, ui.tzone)); },
+  tresume(d) { const l = liveOf(ui.sid, d.id); if (!l) return; l.st = 'stop'; save('live'); },
+  tzone(d) { const l = liveOf(ui.sid, d.id); if (!l || l.st !== 'ready') return; ui.tzone = d.z; L.set('tzone', d.z); setLive(ui.sid, d.id, newLive(cur(), d.z)); },
+  tcancel(d) { setLive(ui.sid, d.id, null); },
+  tgo(d) { if (!guard()) return; const l = liveOf(ui.sid, d.id); if (!l || (l.st !== 'ready' && l.st !== 'stop')) return; if (l.st === 'ready') { ui.tzone = l.z.id; L.set('tzone', l.z.id); } l.st = 'run'; l.from = now(); save('live'); buzz(); },
+  tstop(d) { const l = liveOf(ui.sid, d.id); if (!l || l.st !== 'run') return; l.acc = Math.min(elapsed(l), l.z.time); l.st = 'stop'; l.from = null; save('live'); buzz(); },
+  tpause(d) { const l = liveOf(ui.sid, d.id); if (!l || l.st !== 'stop') return; l.st = 'pause'; save('live'); },
+  tgate(d) { const l = liveOf(ui.sid, d.id); if (!l || l.st === 'ready' || l.st === 'pause') return; l.gates[+d.i] = l.gates[+d.i] ? 0 : 1; save('live'); buzz(); },
+  tpen(d) { const l = liveOf(ui.sid, d.id); if (!l || l.st === 'ready' || l.st === 'pause') return;
+    l.pen = Math.max(0, Math.min(l.z.pen, l.pen + +d.d));
+    if (l.pen >= l.z.pen && l.st !== 'over') { overLive(l, 'pen'); buzz(); }
+    else if (l.pen < l.z.pen && l.st === 'over' && l.why === 'pen') { l.acc = l.before; l.st = 'stop'; l.why = null; }   // the last penalty was a mistake
+    save('live'); },
+  tfin(d) { if (!guard()) return; const l = liveOf(ui.sid, d.id); if (!l || (l.st !== 'stop' && l.st !== 'over')) return;
+    const data = { z: l.z.id, zn: l.z.name, g: l.z.gates.map((p, i) => [p, l.gates[i] ? 1 : 0]), pen: l.pen, max: l.z.pen, lim: l.z.time, ms: Math.min(l.acc, l.z.time), over: l.st === 'over' ? l.why : null };
+    const e = emit('trial', d.id, now(), null, data); setLive(ui.sid, d.id, null); ui.undo = [e];
+    toast(t('trial.saved', { name: rname(d.id), pts: tpts(data) }), undoBtn()); },
+  tedit(d) { if (!guard()) return; const p = trialsOf(ui.sid).find(x => x.id === d.id); if (!p) return; ui.tedit = JSON.parse(JSON.stringify(p)); ui.sheet = 'tedit'; },
+  tegate(d) { const x = ui.tedit; if (x) x.g[+d.i][1] = x.g[+d.i][1] ? 0 : 1; },
+  tepen(d) { const x = ui.tedit; if (x) x.pen = Math.max(0, Math.min(x.max, x.pen + +d.d)); },
+  tdel(d) { if (!guard()) return; const p = trialsOf(ui.sid).find(x => x.id === d.id); if (!p) return;
+    const chain = (db.events[ui.sid] || []).filter(e => e.type === 'trial' && (e.id === p.orig || (e.data && e.data.o === p.orig)));
+    chain.forEach(e => emit('void', e.rider_id, now(), e.id)); toast(t('trial.deleted')); }
+};
+function trialEditSave() {
+  const x = ui.tedit; if (!x || !guard()) return; const ms = parseTime($('te-time').value); if (!ms) { toast(t('trial.badTime')); return; }
+  const data = { z: x.z, zn: x.zn, g: x.g, pen: x.pen, max: x.max, lim: x.lim, ms: Math.min(ms, x.lim || ms), over: x.pen >= x.max ? 'pen' : ms >= (x.lim || Infinity) ? 'time' : null, o: x.orig };
+  if (data.over === 'pen') data.ms = x.lim || ms;
+  emit('trial', x.riderId, now(), x.id, data); ui.tedit = null; ui.sheet = null; render(); toast(t('trial.corrected'));
 }
 
 /* ---------- GPS tracks (GPX and FIT) ---------- */
@@ -1233,6 +1408,7 @@ function analysis(s) {
 
 /* ---------- sheets ---------- */
 function sheet() {
+  if (ui.sheet === 'tedit') return trialEditSheet();
   if (ui.sheet === 'dup') { const s = cur(); if (!s) return '';
     return `<div class="veil"><form class="sheet" data-form="dup"><h3>${t('dup.title')}</h3><div class="note">${t('dup.help', { riders: nRiders(s.rider_ids.length) })}</div>
     <div class="field">${t('sheet.name')}<input id="d-name" value="${esc(t('dup.copyName', { name: s.name }))}" autocomplete="off" required></div>
@@ -1357,7 +1533,7 @@ const A = {
     try { await swReg.update(); } catch (e) { toast(t('auth.noNetwork')); return; }
     setTimeout(() => { if (!updateFound) toast(t('update.latest')); }, 2500);
   },
-  new() { ui.sheet = 'new'; }, dup() { ui.sheet = 'dup'; }, close() { ui.sheet = null; ui.confirmDel = false; }, people() { ui.sheet = 'people'; ui.confirmDel = false; },
+  new() { ui.sheet = 'new'; }, dup() { ui.sheet = 'dup'; }, close() { ui.sheet = null; ui.confirmDel = false; ui.tedit = null; }, people() { ui.sheet = 'people'; ui.confirmDel = false; },
   arch() { ui.showArch = !ui.showArch; },
   archive() { const s = cur(); s.archived = !s.archived; save('sessions'); queue({ k: 'upd', t: 'sessions', id: s.id, patch: { archived: s.archived } }); if (s.archived) { A.home(); toast(t('toast.archived')); } else toast(t('toast.unarchived')); },
   delsession() { if (!ui.confirmDel) { ui.confirmDel = true; return; } const id = ui.sid; db.sessions = db.sessions.filter(s => s.id !== id); delete db.events[id]; delete db.gpx[id]; delete db.pend[id]; save('sessions', 'events', 'gpx', 'pend'); queue({ k: 'del', t: 'sessions', id }); A.home(); toast(t('toast.sessionDeleted')); },
@@ -1432,10 +1608,12 @@ const A = {
 
 /* forms */
 // "1:23.45", "83.45" or "1:23,45" → milliseconds
+Object.assign(A, TA);
 const parseTime = v => { const m = String(v).trim().replace(',', '.').match(/^(?:(\d+):)?(\d+(?:\.\d*)?)$/); if (!m) return null; const ms = Math.round(((+m[1] || 0) * 60 + +m[2]) * 1000); return ms > 0 ? ms : null; };
 // Closing event of a run (finish or abandon), to be cancelled when the run is corrected
 const closing = x => (db.events[ui.sid] || []).find(e => x.evs.includes(e.id) && e.type === 'finish');
 const F = {
+  tedit() { trialEditSave(); },
   runedit() { const x = R.find(q => q.id === ui.runId), ms = parseTime($('re-time').value); if (!x || !guard()) return; if (!ms) { toast(t('lock.invalid')); return; }
     const c = closing(x), ev = []; if (c) ev.push(emit('void', x.riderId, now(), c.id)); ev.push(emit('finish', x.riderId, x.start + ms)); ui.undo = ev; ui.sheet = null; render(); toast(t('lock.fixed', { name: rname(x.riderId), time: fmt(ms) }), undoBtn()); },
   runadd() { const s = cur(), r = $('ra-rider').value, ms = parseTime($('ra-time').value); if (!s || !r || !guard()) return; if (!ms) { toast(t('lock.invalid')); return; }
@@ -1490,6 +1668,7 @@ const csvRows = txt => txt.replace(/^﻿/, '').split(/\r?\n/).map(l => l.split(/
 document.addEventListener('change', e => {
   const id = e.target.id, s = cur();
   if (e.target.dataset && e.target.dataset.opt) { ui.exp[e.target.dataset.opt] = e.target.checked; render(); return; }
+  if (e.target.dataset && e.target.dataset.z && e.target.dataset.f) { trialChange(e.target); return; }
   if (id === 'lang-pick') { L.set('lang', e.target.value); setLang(e.target.value); e.target.blur(); render(); return; }
   if (id === 'e-name' && s) { const v = e.target.value.trim(); if (v) { s.name = v; save('sessions'); queue({ k: 'upd', t: 'sessions', id: s.id, patch: { name: v } }); } }
   if (id === 'e-date' && s && e.target.value) { s.date = e.target.value; save('sessions'); queue({ k: 'upd', t: 'sessions', id: s.id, patch: { date: s.date } }); }
@@ -1512,9 +1691,10 @@ function boot() {
   setInterval(() => { if (document.visibilityState !== 'visible' || !authed) return; push(); if (ui.view === 'session') pullEvents(ui.sid); }, 8000);
   setInterval(() => { if (document.visibilityState === 'visible' && authed) pull(); }, 60000);
   setInterval(syncClock, 600000);
+  setInterval(trialTick, 250);
   render(); initAuth(); initUpdates();
 }
 const missing = SET.languages.filter(c => !(self.CHRONO_LANGS || {})[c]);
 if (missing.length) Promise.all(missing.map(c => loadScript('lang/' + encodeURIComponent(c) + '.js'))).then(boot); else boot();
-self.__chrono = { db, ui, A, F, runsOf, render, push, pull, t, parseFit, parseGpx, course, detectRuns, tracksOf };   // handy for troubleshooting in the browser console
+self.__chrono = { db, ui, A, F, runsOf, render, push, pull, t, parseFit, parseGpx, course, detectRuns, tracksOf, trialsOf, trialRank };   // handy for troubleshooting in the browser console
 })();

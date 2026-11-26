@@ -91,6 +91,9 @@ h2{font:700 12px/1 var(--display);letter-spacing:.09em;text-transform:uppercase;
 .veil{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:flex-end;justify-content:center;z-index:5}
 .sheet{background:var(--bg);width:100%;max-width:560px;max-height:88%;overflow:auto;border-radius:18px 18px 0 0;padding:18px 16px 24px;display:flex;flex-direction:column;gap:12px}
 .sheet h3{font:800 21px/1.1 var(--display);margin:0}
+.sheet>*{flex:none}
+.ghost,.primary{line-height:1.25;overflow-wrap:anywhere}
+.ghost{padding-top:10px;padding-bottom:10px}
 .field{display:flex;flex-direction:column;gap:5px;font-size:14px;font-weight:500;color:var(--muted)}
 .field input,.field select{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px;min-height:48px;color:var(--ink);font-size:16px;width:100%}
 .primary{background:var(--accent);color:var(--accent-ink);border:0;border-radius:12px;min-height:52px;font-weight:600;font-size:17px;padding:0 16px}
@@ -205,3 +208,26 @@ h2{font:700 12px/1 var(--display);letter-spacing:.09em;text-transform:uppercase;
 #course-slot.big .lmap{height:72vh}
 .runs button.dnfbtn{color:var(--stop)}
 .chip.rm{border-style:dashed;color:var(--stop)}
+/* Trial: one card per passage, gates spaced out so a gloved finger hits only one */
+.tcard{background:var(--surface);border:2px solid var(--ink);border-radius:14px;padding:12px;display:flex;flex-direction:column;gap:12px}
+.thead{display:flex;align-items:center;gap:12px}.thead .who{flex:1}
+.tclock{text-align:right;font-variant-numeric:tabular-nums}.tclock b{display:block;font:800 30px/1 var(--display)}
+.tclock small{color:var(--muted);font-size:12px}.tclock.on b{color:var(--go)}.tclock.over b{color:var(--stop)}
+.tzone{font-weight:600}
+.gates{display:grid;grid-template-columns:repeat(auto-fill,minmax(78px,1fr));gap:16px 14px}
+.gate{min-height:68px;border-radius:12px;border:3px solid var(--gc);background:none;color:var(--ink);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:4px}
+.gate b{font:800 18px/1 var(--display)}.gate span{font-size:13px;color:var(--muted)}
+.gate.g3{--gc:#2E9B4F}.gate.g5{--gc:#2F74D0}.gate.g10{--gc:#D43A2F}
+.gate[aria-pressed="true"],.gate.on{background:var(--gc);color:#fff}.gate[aria-pressed="true"] span,.gate.on span{color:#fff}
+.gate[aria-pressed="true"] b::after{content:" ✓"}
+.gate:disabled{opacity:.45}.zcard .gate:disabled{opacity:.7}
+.tsum{display:flex;justify-content:space-between;align-items:baseline;font-variant-numeric:tabular-nums}.tsum b{font:800 18px/1 var(--display)}
+.pen{display:grid;grid-template-columns:64px 1fr 64px;align-items:center;gap:12px;text-align:center}
+.pen .act{min-width:64px;min-height:52px;font-size:24px}.pen small{display:block;color:var(--muted);font-size:12px}
+.pen b{font:800 22px/1.1 var(--display);font-variant-numeric:tabular-nums}.pen b.max{color:var(--stop)}
+.tbtns{display:flex;gap:10px;flex-wrap:wrap}.tbtns>*{flex:1;min-height:52px}
+.zcard{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:12px;display:flex;flex-direction:column;gap:12px}
+.zhead{display:flex;gap:8px;align-items:center}
+.zname{flex:1;min-width:0;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:10px;font-weight:600;font-size:17px;color:var(--ink)}
+.zrow{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.runs div.zsum{color:var(--muted);font-size:13px}.runs div.zsum span{font-weight:600;color:var(--ink)}
