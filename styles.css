@@ -233,3 +233,19 @@ h2{font:700 12px/1 var(--display);letter-spacing:.09em;text-transform:uppercase;
 .runs div.zsum{color:var(--muted);font-size:13px}.runs div.zsum span{font-weight:600;color:var(--ink)}
 .tag.kind{display:inline-block;vertical-align:middle;margin-left:6px;font-size:11px;padding:4px 7px;position:relative;top:-2px;color:var(--ink)}
 .runs div.lap{padding-left:22px;font-size:14px}.runs div.lap+div.lap{border-top:1px dashed var(--line)}.runs b.best{color:var(--go)}
+.toast button.dnf{color:var(--stop);text-decoration:none;border:2px solid var(--stop);border-radius:8px}
+/* Trial results: one block per passage, with the gates as small coloured squares (filled = cleared) */
+.runs div.tpass{display:block;padding:8px 0}
+.runs .tpass>div{border:0;padding:3px 0}
+.runs .tp-head b{font-size:16px}.runs .tp-head em{color:var(--ink);font-weight:600}
+.runs .mgates{display:flex;flex-wrap:wrap;gap:6px;padding-left:22px!important}
+.runs .mgates .gate{min-height:0;width:30px;height:30px;border-width:2px;border-radius:7px;font:700 12px/1 var(--body,inherit);font-style:normal;display:flex;align-items:center;justify-content:center;color:var(--muted);padding:0}
+.runs .mgates .gate.on{color:#fff}
+.runs .tp-meta{flex-wrap:wrap;gap:4px 14px;padding-left:22px!important;color:var(--muted);font-size:13px}
+.runs .tp-meta .over{color:var(--stop)}
+/* Penalties: big, clearly separated − and + */
+.pen .act{min-width:72px;min-height:60px;font:800 30px/1 var(--display);border-radius:14px}
+.pen .act[data-d="1"]{background:var(--stop);color:#fff;border:0}
+.pen .act[data-d="-1"]{background:none;border:2px solid var(--ink);color:var(--ink)}
+.pen .act:disabled{opacity:.35}
+.pen{grid-template-columns:72px 1fr 72px}

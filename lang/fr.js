@@ -353,5 +353,6 @@ self.CHRONO_LANGS.fr = {
   'results.bestLap': 'meilleur tour',
   'results.lapTitle': 'Tour {i} de {name}',
   'results.lapHelp': 'Les tours suivants gardent leur temps : le temps total du passage change d\'autant.',
-  'results.lapFixed': 'Tour {i} corrigé : {name} {time}'
+  'results.lapFixed': 'Tour {i} corrigé : {name} {time}',
+  'trial.timeN': 'temps {time}'
 };

@@ -413,7 +413,7 @@ function chrono(s) {
       const dnfBtn = `<button class="act dnf" data-act="dnf" data-id="${r}" aria-label="${esc(t('chrono.dnfAria', { name: rname(r) }))}">${t('btn.dnf')}</button>`;
       if (pd != null) { time = ''; sub = t('chrono.stoppedAt', { time: fmt(pd - a.start) }); btn = `<span class="duo"><button class="act lap" data-act="lap" data-id="${r}">${t('btn.lap')}</button><button class="act stop" data-act="fin" data-id="${r}">${t('btn.finish')}</button>${dnfBtn}<button class="act x" data-act="nostop" data-id="${r}" aria-label="${t('chrono.cancelStop')}">✕</button></span>`; }
       else if (p === 'inter') btn = `<button class="act split" data-act="split" data-id="${r}">${t('btn.split')}</button>`;
-      else if (p === 'finish' || p === 'both') btn = `<span class="duo">${dnfBtn}<button class="act stop" data-act="stop" data-id="${r}">${t('btn.stop')}</button></span>`;
+      else if (p === 'finish' || p === 'both') btn = `<button class="act stop" data-act="stop" data-id="${r}">${t('btn.stop')}</button>`;   // DNF comes after Stop
     } else {
       const nd = dnfs(r);
       sub = ORPH[r] ? t('chrono.waitingStart') : ts.length ? t('chrono.runsBest', { runs: runsLabel(r, ts.length), time: fmt(Math.min(...ts)) }) + (nd ? ' · ' + t('chrono.dnfCount', { n: nd }) : '') : nd ? t('chrono.dnfCount', { n: nd }) : t('chrono.notStarted');
@@ -437,7 +437,7 @@ function chrono(s) {
 function results(s) {
   const ids = [...new Set([...s.rider_ids, ...R.map(r => r.riderId)])].filter(r => (times(r).length || dnfs(r)) && inCat(r)).sort((a, b) => (best(a) ?? 1e15) - (best(b) ?? 1e15)), chips = catChips(s);
   const ed = canChange(s), lockBar = locked(s) ? (isAdmin() ? `<div class="hint lock ${editing(s) ? 'on' : ''}">${t(editing(s) ? 'lock.editing' : 'lock.frozen')}<div class="tools"><button class="${editing(s) ? 'primary' : 'ghost'}" data-act="editres">${t(editing(s) ? 'lock.stopEdit' : 'lock.edit')}</button>${editing(s) ? `<button class="ghost" data-act="runadd">${t('lock.addRun')}</button>` : ''}</div></div>` : `<div class="hint lock">${t('lock.frozen')}</div>`) : '';
-  const addBtn = ed && !locked(s) ? `<div class="tools"><button class="ghost" data-act="runadd">${t('lock.addRun')}</button></div>` : '';   // frozen sessions: in the admin bar above
+  const addBtn = kindOf(s) === 'trial' ? '' : ed && !locked(s) ? `<div class="tools"><button class="ghost" data-act="runadd">${t('lock.addRun')}</button></div>` : '';   // frozen sessions: in the admin bar above
   const tri = trialResults(s);
   if (!ids.length) return `${chips}${lockBar}${tri || `<div class="hint">${t('results.none')}</div>`}${addBtn}`;
   return `${chips}${lockBar}${tri}${tri ? `<h2>${t('tab.chrono')}</h2>` : ''}<ul class="list">${ids.map((r, i) => {
@@ -575,7 +575,9 @@ function trialResults(s) {
       return `<div class="zsum"><span>${esc(q[q.length - 1].zn)}</span><em>${t('trial.line', { pts: q.reduce((a, p) => a + p.pts, 0), pen: q.reduce((a, p) => a + p.pen, 0), time: mmss(q.reduce((a, p) => a + p.ms, 0)) })}</em></div>`; }).join('') : '';
     return `<li><details class="res" data-k="trial-${x.r}"><summary><span class="pos">${i + 1}</span><div class="who"><b>${esc(rname(x.r))}</b><small>${[nRuns(x.n), rcat(x.r) ? esc(rcat(x.r)) : '', t('results.details')].filter(Boolean).join(' · ')}</small></div>
       <div class="stats"><span>${t('trial.pts')}</span><span>${t('trial.penShort')}</span><span>${t('trial.timeShort')}</span><b class="best">${x.pts}</b><b>${x.pen}</b><b>${mmss(x.ms)}</b></div></summary>
-      <div class="runs">${byZone}${x.ps.map((p, k) => `<div><span>${k + 1}.</span><b>${t('trial.ptsTotal', { pts: p.pts })}</b><em>${esc(p.zn)} · ${t('trial.gatesDone', { n: p.g.filter(g => g[1]).length, of: p.g.length })} · ${t('trial.penN', { n: p.pen })} · ${mmss(p.ms)}${p.over ? ' · ' + t(p.over === 'pen' ? 'trial.overPen' : 'trial.overTime') : ''}</em>${ed ? `<button class="mod" data-act="tedit" data-id="${p.id}">${t('lock.modify')}</button><button data-act="tdel" data-id="${p.id}">${t('results.delete')}</button>` : ''}</div>`).join('')}</div></details></li>`; }).join('')}</ul>
+      <div class="runs">${byZone}${x.ps.map((p, k) => `<div class="tpass"><div class="tp-head"><span>${k + 1}.</span><b>${t('trial.ptsTotal', { pts: p.pts })}</b><em>${esc(p.zn)}</em>${ed ? `<button class="mod" data-act="tedit" data-id="${p.id}">${t('lock.modify')}</button><button data-act="tdel" data-id="${p.id}">${t('results.delete')}</button>` : ''}</div>
+      <div class="mgates">${p.g.map(([pts, ok], i) => `<i class="gate ${gateCls(pts)} ${ok ? 'on' : ''}" title="${esc(t('trial.gateAria', { i: i + 1, pts }))}">${pts}</i>`).join('')}</div>
+      <div class="tp-meta"><span>${t('trial.gatesDone', { n: p.g.filter(g => g[1]).length, of: p.g.length })}</span><span>${t('trial.penN', { n: p.pen })}</span><span>${t('trial.timeN', { time: mmss(p.ms) })}</span>${p.over ? `<span class="over">${t(p.over === 'pen' ? 'trial.overPen' : 'trial.overTime')}</span>` : ''}</div></div>`).join('')}</div></details></li>`; }).join('')}</ul>
     <div class="note">${t('trial.rankNote')}</div>`;
 }
 function trialEditSheet() {
@@ -1519,7 +1521,7 @@ let toastT;
 function toast(msg, btn, ms) {
   document.querySelectorAll('.toast').forEach(e => e.remove()); clearTimeout(toastT);
   const d = document.createElement('div'); d.className = 'toast'; d.setAttribute('role', 'status');
-  d.innerHTML = '<span>' + esc(msg) + '</span>' + (btn ? `<button data-act="${btn.act}">${esc(btn.label)}</button>` : ''); document.body.appendChild(d);
+  d.innerHTML = '<span>' + esc(msg) + '</span>' + [].concat(btn || []).map(b => `<button data-act="${b.act}" ${b.id ? `data-id="${b.id}"` : ''} class="${b.cls || ''}">${esc(b.label)}</button>`).join(''); document.body.appendChild(d);
   if (ms !== 0) toastT = setTimeout(() => d.remove(), ms || (btn ? 7000 : 5000));
 }
 const undoBtn = () => ({ act: 'undo', label: t('common.undo') });
@@ -1586,7 +1588,8 @@ const A = {
     const ts = tapTs(), a = active(d.id); buzz();
     if (a && ui.poste === 'both') { (db.pend[ui.sid] = db.pend[ui.sid] || {})[d.id] = ts; save('pend'); return; }
     const e = emit('finish', d.id, ts); ui.undo = [e];
-    toast(a ? t('toast.finished', { name: rname(d.id), time: fmt(ts - a.start) }) : t('toast.finishEarly', { name: rname(d.id) }), undoBtn());
+    // Finish post: the run is recorded at once; the message offers to turn it into a DNF (or to undo it)
+    toast(a ? t('toast.finished', { name: rname(d.id), time: fmt(ts - a.start) }) : t('toast.finishEarly', { name: rname(d.id) }), a ? [undoBtn(), { act: 'stopdnf', id: e.id, label: t('btn.dnf'), cls: 'dnf' }] : undoBtn(), a ? 9000 : undefined);
   },
   lap(d) { if (!guard()) return; const p = db.pend[ui.sid] || {}, ts = p[d.id], a = active(d.id); delete p[d.id]; save('pend'); if (ts == null || !a) return; ui.undo = [emit('lap', d.id, ts)]; toast(t('toast.lap', { i: a.laps.length + 1, name: rname(d.id), time: fmt(ts - (a.laps[a.laps.length - 1] ?? a.start)) }), undoBtn()); },
   fin(d) { if (!guard()) return; const p = db.pend[ui.sid] || {}, ts = p[d.id], a = active(d.id); delete p[d.id]; save('pend'); if (ts == null || !a) return; ui.undo = [emit('finish', d.id, ts)]; toast(t('toast.finished', { name: rname(d.id), time: fmt(ts - a.start) }), undoBtn()); },
@@ -1614,6 +1617,7 @@ const A = {
   runedit(d) { if (!guard()) return; ui.runId = d.id; ui.sheet = 'runedit'; },
   runadd() { if (!guard()) return; ui.sheet = 'runadd'; },
   lapedit(d) { if (!guard()) return; ui.runId = d.id; ui.lapI = +d.i; ui.sheet = 'lapedit'; },
+  stopdnf(d) { const x = R.find(q => q.evs.includes(d.id)); if (!x) return; ui.runId = x.id; A.runtodnf(); },
   rundnf(d) { ui.runId = d.id; A.runtodnf(); },
   runtodnf() { const x = R.find(q => q.id === ui.runId); if (!x || !guard()) return; const c = closing(x), ev = []; if (c) ev.push(emit('void', x.riderId, now(), c.id)); ev.push(emit('finish', x.riderId, x.end != null ? x.end : now(), x.id)); ui.undo = ev; ui.sheet = null; toast(t('toast.dnf', { name: rname(x.riderId) }), undoBtn()); },
   // Share must be called right after the tap: the PDF is already prepared (see prepareExport).

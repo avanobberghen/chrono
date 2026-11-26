@@ -158,7 +158,7 @@ The rule is applied by the app (coaches' phones refuse), not by the database. Ti
 
 ## Abandons (DNF)
 
-At the **Finish** and **Start/Finish** posts, each rider on course has a **DNF** button (shown as *ABD* in French) next to Stop. At Start/Finish it is also offered with Lap and Finish after a Stop. The run is closed without a time: it does not count in times, averages or rankings, but appears as "DNF" in the results, the `.csv` export and the PDF (a DNF column in the ranking; riders with only DNFs are listed at the end). The **Undo** banner and the **Delete** button in Results work as for any run. No database change is needed.
+**DNF** (shown as *ABD* in French) is offered after **Stop**: at the **Start/Finish** post, with Lap and Finish; at the **Finish** post, in the message that confirms the time (next to Undo), which turns the run just stopped into a DNF. Later, use **DNF** on the run in Results. The run is closed without a time: it does not count in times, averages or rankings, but appears as "DNF" in the results, the `.csv` export and the PDF (a DNF column in the ranking; riders with only DNFs are listed at the end). The **Undo** banner and the **Delete** button in Results work as for any run. No database change is needed.
 
 ## Categories
 

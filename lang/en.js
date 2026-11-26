@@ -359,5 +359,6 @@ self.CHRONO_LANGS.en = {
   'results.bestLap': 'best lap',
   'results.lapTitle': 'Lap {i} of {name}',
   'results.lapHelp': 'The following laps keep their times: the total time of the run changes by the same amount.',
-  'results.lapFixed': 'Lap {i} corrected: {name} {time}'
+  'results.lapFixed': 'Lap {i} corrected: {name} {time}',
+  'trial.timeN': 'time {time}'
 };
