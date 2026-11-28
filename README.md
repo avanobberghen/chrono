@@ -276,6 +276,7 @@ Some versions need a change in the database. They come with a file in `supabase/
 | 1.4 | `supabase/update-1.4.sql` | Rider categories |
 | 1.9 | `supabase/update-1.9.sql` | Trial zones and passages |
 | 1.10 | `supabase/update-1.10.sql` | Session type (course, circuit, trial) |
+| 1.12 | `supabase/update-1.12.sql` | Live result screens, session lock, Screen and Sync accounts (prepares the Live menu) |
 
 Until it is run, the app keeps working but the new data is not saved (categories, trial, session type), and the app shows a reminder. New installations do not need these files: `schema.sql` already includes everything.
 
